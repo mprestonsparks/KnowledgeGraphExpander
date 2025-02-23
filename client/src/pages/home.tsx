@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { GraphViewer } from "@/components/graph/GraphViewer";
 import { ControlPanel } from "@/components/graph/ControlPanel";
 import { MetricsPanel } from "@/components/graph/MetricsPanel";
+import { SuggestionsPanel } from "@/components/graph/SuggestionsPanel";
 import { wsClient } from "@/lib/websocket";
 import { queryClient } from "@/lib/queryClient";
 import { type GraphData } from "@shared/schema";
@@ -34,6 +35,7 @@ export default function Home() {
         {/* Left column - Controls and Metrics */}
         <div className="lg:col-span-3 flex flex-col gap-6">
           <ControlPanel />
+          <SuggestionsPanel />
           <MetricsPanel data={data} />
         </div>
 

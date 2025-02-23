@@ -56,5 +56,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // New endpoint for relationship suggestions
+  app.get('/api/graph/suggestions', async (_req, res) => {
+    try {
+      const suggestions = await graphManager.suggestRelationships();
+      res.json(suggestions);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get relationship suggestions" });
+    }
+  });
+
+  app.post('/api/graph/suggestions/apply', async (req, res) => {
+    const schema = z.object({
+      sourceId: z.number(),
+      targetId: z.number(),
+      label: z.string(),
+      weight: z.number().default(1)
+    });
+
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({ error: "Invalid request body" });
+    }
+
+    try {
+      const updatedGraph = await graphManager.applyRelationship(result.data);
+      broadcastUpdate(updatedGraph);
+      res.json(updatedGraph);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to apply relationship" });
+    }
+  });
+
   return httpServer;
 }

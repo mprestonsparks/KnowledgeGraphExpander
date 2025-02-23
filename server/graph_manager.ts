@@ -1,8 +1,8 @@
 import Graph from "graphology";
 import { centrality } from "graphology-metrics";
-import { type Node, type Edge, type GraphData } from "@shared/schema";
+import { type Node, type Edge, type GraphData, type InsertEdge } from "@shared/schema";
 import { storage } from "./storage";
-import { expandGraph } from "./openai_client";
+import { expandGraph, suggestRelationships, type RelationshipSuggestion } from "./openai_client";
 
 export class GraphManager {
   private graph: Graph;
@@ -26,12 +26,9 @@ export class GraphManager {
         { ...edge }
       );
     });
-
-    console.log('Graph initialized with:', { nodes: nodes.length, edges: edges.length });
   }
 
   async expand(prompt: string): Promise<GraphData> {
-    // If another expansion is in progress, wait for it to complete
     if (this.expandPromise) {
       console.log('Waiting for ongoing expansion to complete');
       await this.expandPromise;
@@ -42,11 +39,9 @@ export class GraphManager {
       this.isExpanding = true;
       console.log('Starting expansion with prompt:', prompt);
 
-      // Store expansion promise without return value
       this.expandPromise = this.performExpansion(prompt);
       await this.expandPromise;
 
-      // Always return full state
       return this.calculateMetrics();
     } finally {
       this.isExpanding = false;
@@ -105,6 +100,28 @@ export class GraphManager {
     });
   }
 
+  async suggestRelationships(): Promise<RelationshipSuggestion[]> {
+    return suggestRelationships(this.graph);
+  }
+
+  async applyRelationship(edgeData: InsertEdge): Promise<GraphData> {
+    if (!this.validateEdgeData(edgeData)) {
+      throw new Error('Invalid edge data');
+    }
+
+    const edge = await storage.createEdge(edgeData);
+    if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
+      this.graph.addEdge(
+        edge.sourceId.toString(),
+        edge.targetId.toString(),
+        { ...edge }
+      );
+      console.log('Added suggested edge:', `${edge.sourceId}-${edge.targetId}`);
+    }
+
+    return this.calculateMetrics();
+  }
+
   private validateEdgeData(edgeData: any): boolean {
     if (typeof edgeData.sourceId !== 'number' || typeof edgeData.targetId !== 'number') {
       console.warn('Invalid edge data, skipping:', edgeData);
@@ -127,7 +144,6 @@ export class GraphManager {
     try {
       eigenvector = centrality.eigenvector(this.graph);
     } catch (error) {
-      // If eigenvector centrality fails, initialize with zeros
       this.graph.forEachNode((nodeId: string) => {
         eigenvector[nodeId] = 0;
       });
@@ -139,7 +155,6 @@ export class GraphManager {
       degree[id] = this.graph.degree(nodeId);
     });
 
-    // Get current nodes and edges
     const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
       ...this.graph.getNodeAttributes(nodeId),
       id: parseInt(nodeId)
