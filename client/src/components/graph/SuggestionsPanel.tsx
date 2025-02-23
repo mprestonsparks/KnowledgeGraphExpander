@@ -17,7 +17,9 @@ interface RelationshipSuggestion {
 
 async function getSuggestions(): Promise<RelationshipSuggestion[]> {
   const response = await apiRequest("GET", "/api/graph/suggestions");
-  return response.json();
+  const data = await response.json();
+  console.log('Suggestions response:', data);
+  return data;
 }
 
 async function applySuggestion(suggestion: {
@@ -39,6 +41,8 @@ export function SuggestionsPanel() {
   const { data: suggestions = [], isLoading, refetch } = useQuery({
     queryKey: ["/api/graph/suggestions"],
     queryFn: getSuggestions,
+    refetchInterval: false,
+    retry: 1
   });
 
   const applyMutation = useMutation({

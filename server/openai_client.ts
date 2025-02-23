@@ -80,6 +80,7 @@ export interface RelationshipSuggestion {
 
 export async function suggestRelationships(currentGraph: Graph): Promise<RelationshipSuggestion[]> {
   if (!openaiInstance) {
+    console.log('Initializing OpenAI client');
     initializeOpenAI(process.env.OPENAI_API_KEY || '');
   }
 
@@ -89,6 +90,8 @@ export async function suggestRelationships(currentGraph: Graph): Promise<Relatio
     ...currentGraph.getNodeAttributes(nodeId)
   }));
 
+  console.log('Current nodes:', nodes);
+
   // Get existing relationships for context
   const existingEdges = Array.from(currentGraph.edges()).map(edgeId => ({
     source: parseInt(currentGraph.source(edgeId)),
@@ -96,11 +99,15 @@ export async function suggestRelationships(currentGraph: Graph): Promise<Relatio
     ...currentGraph.getEdgeAttributes(edgeId)
   }));
 
+  console.log('Current edges:', existingEdges);
+
   if (nodes.length < 2) {
-    return []; // Not enough nodes for suggestions
+    console.log('Not enough nodes for suggestions');
+    return [];
   }
 
   try {
+    console.log('Requesting suggestions from OpenAI');
     const response = await openaiInstance!.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -121,6 +128,8 @@ export async function suggestRelationships(currentGraph: Graph): Promise<Relatio
       response_format: { type: "json_object" }
     });
 
+    console.log('OpenAI response:', response.choices?.[0]?.message?.content);
+
     if (!response.choices?.[0]?.message?.content) {
       console.error('No content in OpenAI response');
       return [];
@@ -129,24 +138,29 @@ export async function suggestRelationships(currentGraph: Graph): Promise<Relatio
     let result: RelationshipSuggestion[];
     try {
       const parsed = JSON.parse(response.choices[0].message.content);
-      result = Array.isArray(parsed) ? parsed : [];
+      result = Array.isArray(parsed) ? parsed : parsed.suggestions || [];
+      console.log('Parsed suggestions:', result);
     } catch (error) {
       console.error('Failed to parse OpenAI response:', error);
       return [];
     }
 
     // Validate and filter suggestions
-    return result
-      .filter(suggestion =>
-        // Ensure IDs are valid
-        nodes.some(n => n.id === suggestion.sourceId) &&
-        nodes.some(n => n.id === suggestion.targetId) &&
-        // Ensure this connection doesn't already exist
-        !existingEdges.some(e =>
-          (e.source === suggestion.sourceId && e.target === suggestion.targetId) ||
-          (e.source === suggestion.targetId && e.target === suggestion.sourceId)
-        )
-      )
+    const validSuggestions = result
+      .filter(suggestion => {
+        const isValid = 
+          nodes.some(n => n.id === suggestion.sourceId) &&
+          nodes.some(n => n.id === suggestion.targetId) &&
+          !existingEdges.some(e =>
+            (e.source === suggestion.sourceId && e.target === suggestion.targetId) ||
+            (e.source === suggestion.targetId && e.target === suggestion.sourceId)
+          );
+
+        if (!isValid) {
+          console.log('Filtered out invalid suggestion:', suggestion);
+        }
+        return isValid;
+      })
       .map(suggestion => ({
         sourceId: suggestion.sourceId,
         targetId: suggestion.targetId,
@@ -154,6 +168,9 @@ export async function suggestRelationships(currentGraph: Graph): Promise<Relatio
         confidence: Math.min(1, Math.max(0, parseFloat(suggestion.confidence.toString()))),
         explanation: suggestion.explanation
       }));
+
+    console.log('Final valid suggestions:', validSuggestions);
+    return validSuggestions;
   } catch (error) {
     console.error('Error getting relationship suggestions:', error);
     return [];
