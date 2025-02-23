@@ -30,18 +30,24 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 h-[calc(100vh-3rem)]">
-        {/* Left column - Controls and Metrics */}
-        <div className="lg:col-span-3 flex flex-col gap-6">
-          <ControlPanel />
-          <SuggestionsPanel />
-          <MetricsPanel data={data} />
-        </div>
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto p-4">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          {/* Left column - Controls and Suggestions */}
+          <div className="lg:col-span-3 space-y-4">
+            <ControlPanel />
+            <SuggestionsPanel />
+          </div>
 
-        {/* Main content - Graph Viewer */}
-        <div className="lg:col-span-7 rounded-xl border border-border bg-card shadow-md">
-          <GraphViewer data={data} />
+          {/* Main content - Graph Viewer */}
+          <div className="lg:col-span-6 min-h-[calc(100vh-2rem)] rounded-xl border border-border bg-card shadow-md">
+            <GraphViewer data={data} />
+          </div>
+
+          {/* Right column - Metrics */}
+          <div className="lg:col-span-3">
+            <MetricsPanel data={data} />
+          </div>
         </div>
       </div>
     </div>
