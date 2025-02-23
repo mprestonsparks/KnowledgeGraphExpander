@@ -7,6 +7,7 @@ import { expandGraph } from "./openai_client";
 export class GraphManager {
   private graph: Graph;
   private isExpanding: boolean = false;
+  private expandPromise: Promise<void> | null = null;
 
   constructor() {
     this.graph = new Graph({ type: "directed", multi: false });
@@ -14,8 +15,6 @@ export class GraphManager {
 
   async initialize() {
     const { nodes, edges } = await storage.getFullGraph();
-
-    // Add nodes and edges to the graph
     nodes.forEach(node => {
       this.graph.addNode(node.id.toString(), { ...node });
     });
@@ -32,122 +31,93 @@ export class GraphManager {
   }
 
   async expand(prompt: string): Promise<GraphData> {
-    console.log('Starting expansion with prompt:', prompt);
-    console.log('Current graph state:', {
-      nodes: this.graph.order,
-      edges: this.graph.size,
-      isExpanding: this.isExpanding
-    });
-
-    if (this.isExpanding) {
-      console.log('Expansion already in progress, returning empty update');
-      const metrics = this.calculateMetrics();
-      return {
-        nodes: [],
-        edges: [],
-        metrics: metrics.metrics
-      };
+    // If another expansion is in progress, wait for it to complete
+    if (this.expandPromise) {
+      console.log('Waiting for ongoing expansion to complete');
+      await this.expandPromise;
+      return this.calculateMetrics();
     }
 
     try {
       this.isExpanding = true;
-      console.log('Acquired expansion lock');
+      console.log('Starting expansion with prompt:', prompt);
 
-      const newData = await expandGraph(prompt, this.graph);
-      console.log('Received expansion data:', {
-        newNodes: newData.nodes.length,
-        newEdges: newData.edges.length
-      });
+      // Store expansion promise without return value
+      this.expandPromise = this.performExpansion(prompt);
+      await this.expandPromise;
 
-      const createdNodes: Node[] = [];
-      const createdEdges: Edge[] = [];
-
-      // Create nodes first to get their IDs
-      for (const nodeData of newData.nodes) {
-        try {
-          // Skip if node already exists (for concurrent operations)
-          const node = await storage.createNode(nodeData);
-          console.log('Created node:', { id: node.id, label: node.label });
-
-          if (!this.graph.hasNode(node.id.toString())) {
-            createdNodes.push(node);
-            this.graph.addNode(node.id.toString(), { ...node });
-            console.log('Added new node to graph:', node.id);
-          } else {
-            console.log('Node already exists in graph:', node.id);
-          }
-        } catch (error) {
-          console.error('Failed to create node:', error);
-        }
-      }
-
-      // Create edges using the new node IDs
-      for (const edgeData of newData.edges) {
-        try {
-          // Validate edge data before creation
-          if (typeof edgeData.sourceId !== 'number' || typeof edgeData.targetId !== 'number') {
-            console.warn('Invalid edge data, skipping:', edgeData);
-            continue;
-          }
-
-          // Skip if nodes don't exist
-          if (!this.graph.hasNode(edgeData.sourceId.toString()) || 
-              !this.graph.hasNode(edgeData.targetId.toString())) {
-            console.warn('Edge references non-existent nodes, skipping:', edgeData);
-            continue;
-          }
-
-          // Check if edge already exists
-          const edgeExists = this.graph.hasEdge(
-            edgeData.sourceId.toString(),
-            edgeData.targetId.toString()
-          );
-
-          if (!edgeExists) {
-            const edge = await storage.createEdge(edgeData);
-            console.log('Created edge:', {
-              id: edge.id,
-              source: edge.sourceId,
-              target: edge.targetId
-            });
-
-            createdEdges.push(edge);
-            this.graph.addEdge(
-              edge.sourceId.toString(),
-              edge.targetId.toString(),
-              { ...edge }
-            );
-            console.log('Added new edge to graph');
-          } else {
-            console.log('Edge already exists in graph:', {
-              source: edgeData.sourceId,
-              target: edgeData.targetId
-            });
-          }
-        } catch (error) {
-          console.error('Failed to create edge:', error);
-        }
-      }
-
-      const metrics = this.calculateMetrics();
-      console.log('Expansion complete. Current graph state:', {
-        totalNodes: this.graph.order,
-        totalEdges: this.graph.size,
-        newNodes: createdNodes.length,
-        newEdges: createdEdges.length
-      });
-
-      // Return only the newly created items
-      return {
-        nodes: createdNodes,
-        edges: createdEdges,
-        metrics: metrics.metrics
-      };
-
+      // Always return full state
+      return this.calculateMetrics();
     } finally {
       this.isExpanding = false;
+      this.expandPromise = null;
       console.log('Released expansion lock');
     }
+  }
+
+  private async performExpansion(prompt: string): Promise<void> {
+    console.log('Current graph state:', {
+      nodes: this.graph.order,
+      edges: this.graph.size
+    });
+
+    const newData = await expandGraph(prompt, this.graph);
+
+    // Process nodes first
+    for (const nodeData of newData.nodes) {
+      try {
+        const node = await storage.createNode(nodeData);
+        console.log('Created node:', { id: node.id, label: node.label });
+
+        if (!this.graph.hasNode(node.id.toString())) {
+          this.graph.addNode(node.id.toString(), { ...node });
+          console.log('Added node to graph:', node.id);
+        }
+      } catch (error) {
+        console.error('Failed to create node:', error);
+      }
+    }
+
+    // Process edges after nodes
+    for (const edgeData of newData.edges) {
+      try {
+        if (!this.validateEdgeData(edgeData)) {
+          continue;
+        }
+
+        const edge = await storage.createEdge(edgeData);
+        if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
+          this.graph.addEdge(
+            edge.sourceId.toString(),
+            edge.targetId.toString(),
+            { ...edge }
+          );
+          console.log('Added edge:', `${edge.sourceId}-${edge.targetId}`);
+        }
+      } catch (error) {
+        console.error('Failed to create edge:', error);
+      }
+    }
+
+    console.log('Expansion complete:', {
+      totalNodes: this.graph.order,
+      totalEdges: this.graph.size
+    });
+  }
+
+  private validateEdgeData(edgeData: any): boolean {
+    if (typeof edgeData.sourceId !== 'number' || typeof edgeData.targetId !== 'number') {
+      console.warn('Invalid edge data, skipping:', edgeData);
+      return false;
+    }
+
+    if (!this.graph.hasNode(edgeData.sourceId.toString()) || 
+        !this.graph.hasNode(edgeData.targetId.toString())) {
+      console.warn('Edge references non-existent nodes, skipping:', edgeData);
+      return false;
+    }
+
+    return true;
   }
 
   private calculateMetrics(): GraphData {
@@ -157,28 +127,32 @@ export class GraphManager {
     try {
       eigenvector = centrality.eigenvector(this.graph);
     } catch (error) {
-      // If eigenvector centrality fails to converge, initialize with zeros
+      // If eigenvector centrality fails, initialize with zeros
       this.graph.forEachNode((nodeId: string) => {
         eigenvector[nodeId] = 0;
       });
     }
 
     const degree: Record<number, number> = {};
-
     this.graph.forEachNode((nodeId: string) => {
       const id = parseInt(nodeId);
       degree[id] = this.graph.degree(nodeId);
     });
 
+    // Get current nodes and edges
+    const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
+      ...this.graph.getNodeAttributes(nodeId),
+      id: parseInt(nodeId)
+    })) as Node[];
+
+    const currentEdges = Array.from(this.graph.edges()).map(edgeId => ({
+      ...this.graph.getEdgeAttributes(edgeId),
+      id: parseInt(edgeId.split('-')[0])
+    })) as Edge[];
+
     return {
-      nodes: Array.from(this.graph.nodes()).map(nodeId => ({
-        ...this.graph.getNodeAttributes(nodeId),
-        id: parseInt(nodeId)
-      })) as Node[],
-      edges: Array.from(this.graph.edges()).map(edgeId => ({
-        ...this.graph.getEdgeAttributes(edgeId),
-        id: parseInt(edgeId.split('-')[0])
-      })) as Edge[],
+      nodes: currentNodes,
+      edges: currentEdges,
       metrics: {
         betweenness: Object.fromEntries(
           Object.entries(betweenness).map(([k, v]) => [parseInt(k), v])

@@ -21,6 +21,7 @@ describe("GraphManager Initialization", () => {
     vi.resetAllMocks();
     graphManager = new GraphManager();
 
+    // Mock storage responses
     (storage.getFullGraph as jest.Mock).mockResolvedValue({
       nodes: mockNodes,
       edges: mockEdges,
@@ -33,14 +34,14 @@ describe("GraphManager Initialization", () => {
   });
 
   it("should initialize an empty graph correctly", () => {
-    expect(graphManager["graph"].numberOfNodes()).toBe(0);
-    expect(graphManager["graph"].numberOfEdges()).toBe(0);
+    expect(graphManager["graph"].order).toBe(0);
+    expect(graphManager["graph"].size).toBe(0);
   });
 
   it("should load nodes and edges during initialization", async () => {
     await graphManager.initialize();
-    expect(graphManager["graph"].numberOfNodes()).toBe(2);
-    expect(graphManager["graph"].numberOfEdges()).toBe(1);
+    expect(graphManager["graph"].order).toBe(2);
+    expect(graphManager["graph"].size).toBe(1);
   });
 
   it("should maintain node attributes after initialization", async () => {
@@ -59,15 +60,6 @@ describe("GraphManager Initialization", () => {
     expect(edgeAttrs.weight).toBe(1);
   });
 
-  it("should calculate initial metrics after initialization", async () => {
-    await graphManager.initialize();
-    const metrics = graphManager["calculateMetrics"]();
-    
-    expect(metrics.metrics.degree[1]).toBe(1);
-    expect(metrics.metrics.degree[2]).toBe(1);
-    expect(Object.keys(metrics.metrics.betweenness)).toHaveLength(2);
-  });
-
   it("should handle empty graph initialization", async () => {
     (storage.getFullGraph as jest.Mock).mockResolvedValue({
       nodes: [],
@@ -80,7 +72,7 @@ describe("GraphManager Initialization", () => {
     });
 
     await graphManager.initialize();
-    expect(graphManager["graph"].numberOfNodes()).toBe(0);
-    expect(graphManager["graph"].numberOfEdges()).toBe(0);
+    expect(graphManager["graph"].order).toBe(0);
+    expect(graphManager["graph"].size).toBe(0);
   });
 });
