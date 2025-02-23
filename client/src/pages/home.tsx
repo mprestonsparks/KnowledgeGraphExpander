@@ -29,16 +29,16 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 h-[calc(100vh-4rem)]">
+    <div className="min-h-screen bg-background p-6">
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 h-[calc(100vh-3rem)]">
         {/* Left column - Controls and Metrics */}
-        <div className="lg:col-span-2 flex flex-col gap-8">
+        <div className="lg:col-span-3 flex flex-col gap-6">
           <ControlPanel />
           <MetricsPanel data={data} />
         </div>
 
         {/* Main content - Graph Viewer */}
-        <div className="lg:col-span-3 rounded-xl border border-border bg-card shadow-md overflow-hidden p-4">
+        <div className="lg:col-span-7 rounded-xl border border-border bg-card shadow-md">
           <GraphViewer data={data} />
         </div>
       </div>

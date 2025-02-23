@@ -13,9 +13,9 @@ const layoutConfig = {
   nodeRepulsion: 8000,
   idealEdgeLength: 100,
   nodeOverlap: 20,
-  padding: 30,
+  padding: 40,
   randomize: false,
-  componentSpacing: 100,
+  componentSpacing: 150,
   refresh: 20,
   fit: true,
   boundingBox: undefined
@@ -32,9 +32,9 @@ const styleSheet = [
       "text-halign": "center",
       "font-size": "14px",
       "text-wrap": "wrap",
-      "text-max-width": "100px",
-      "width": "40px",
-      "height": "40px",
+      "text-max-width": "120px",
+      "width": "45px",
+      "height": "45px",
       "border-width": "2px",
       "border-color": "hsl(var(--border))",
       "transition-property": "background-color, border-color, width, height",
@@ -44,9 +44,10 @@ const styleSheet = [
   {
     selector: "node[degree >= 3]",
     style: {
-      "width": "50px",
-      "height": "50px",
-      "border-width": "3px"
+      "width": "60px",
+      "height": "60px",
+      "border-width": "3px",
+      "font-size": "16px"
     }
   },
   {
@@ -63,7 +64,7 @@ const styleSheet = [
       "text-margin-y": "-10px",
       "text-background-color": "hsl(var(--background))",
       "text-background-opacity": 0.8,
-      "text-background-padding": "2px"
+      "text-background-padding": "3px"
     }
   }
 ];
