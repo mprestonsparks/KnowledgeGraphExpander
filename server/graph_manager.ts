@@ -2,12 +2,14 @@ import Graph from "graphology";
 import { centrality } from "graphology-metrics";
 import { type Node, type Edge, type GraphData, type InsertEdge } from "@shared/schema";
 import { storage } from "./storage";
-import { expandGraph, suggestRelationships, type RelationshipSuggestion } from "./openai_client";
+import { expandGraph } from "./openai_client";
 
 export class GraphManager {
   private graph: Graph;
   private isExpanding: boolean = false;
   private expandPromise: Promise<void> | null = null;
+  private currentIteration: number = 0;
+  private maxIterations: number = 1000; // As mentioned in the paper
 
   constructor() {
     this.graph = new Graph({ type: "directed", multi: false });
@@ -39,65 +41,63 @@ export class GraphManager {
       this.isExpanding = true;
       console.log('Starting expansion with prompt:', prompt);
 
-      this.expandPromise = this.performExpansion(prompt);
+      this.expandPromise = this.performIterativeExpansion(prompt);
       await this.expandPromise;
 
       return this.calculateMetrics();
     } finally {
       this.isExpanding = false;
       this.expandPromise = null;
-      console.log('Released expansion lock');
     }
   }
 
-  private async performExpansion(prompt: string): Promise<void> {
-    console.log('Current graph state:', {
-      nodes: this.graph.order,
-      edges: this.graph.size
-    });
+  private async performIterativeExpansion(initialPrompt: string): Promise<void> {
+    let currentPrompt = initialPrompt;
 
-    const newData = await expandGraph(prompt, this.graph);
+    while (this.currentIteration < this.maxIterations) {
+      console.log(`Iteration ${this.currentIteration + 1}/${this.maxIterations}`);
 
-    // Process nodes first
-    for (const nodeData of newData.nodes) {
-      try {
-        const node = await storage.createNode(nodeData);
-        console.log('Created node:', { id: node.id, label: node.label });
+      const expansion = await expandGraph(currentPrompt, this.graph);
 
-        if (!this.graph.hasNode(node.id.toString())) {
-          this.graph.addNode(node.id.toString(), { ...node });
-          console.log('Added node to graph:', node.id);
+      // Process nodes
+      for (const nodeData of expansion.nodes) {
+        try {
+          const node = await storage.createNode(nodeData);
+          if (!this.graph.hasNode(node.id.toString())) {
+            this.graph.addNode(node.id.toString(), { ...node });
+          }
+        } catch (error) {
+          console.error('Failed to create node:', error);
         }
-      } catch (error) {
-        console.error('Failed to create node:', error);
       }
-    }
 
-    // Process edges after nodes
-    for (const edgeData of newData.edges) {
-      try {
-        if (!this.validateEdgeData(edgeData)) {
-          continue;
-        }
+      // Process edges
+      for (const edgeData of expansion.edges) {
+        try {
+          if (!this.validateEdgeData(edgeData)) {
+            continue;
+          }
 
-        const edge = await storage.createEdge(edgeData);
-        if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
-          this.graph.addEdge(
-            edge.sourceId.toString(),
-            edge.targetId.toString(),
-            { ...edge }
-          );
-          console.log('Added edge:', `${edge.sourceId}-${edge.targetId}`);
+          const edge = await storage.createEdge(edgeData);
+          if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
+            this.graph.addEdge(
+              edge.sourceId.toString(),
+              edge.targetId.toString(),
+              { ...edge }
+            );
+          }
+        } catch (error) {
+          console.error('Failed to create edge:', error);
         }
-      } catch (error) {
-        console.error('Failed to create edge:', error);
       }
-    }
 
-    console.log('Expansion complete:', {
-      totalNodes: this.graph.order,
-      totalEdges: this.graph.size
-    });
+      // Update prompt for next iteration
+      currentPrompt = expansion.nextQuestion;
+      this.currentIteration++;
+
+      // Allow some time between iterations
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
   }
 
   async suggestRelationships(): Promise<RelationshipSuggestion[]> {
@@ -128,7 +128,7 @@ export class GraphManager {
       return false;
     }
 
-    if (!this.graph.hasNode(edgeData.sourceId.toString()) || 
+    if (!this.graph.hasNode(edgeData.sourceId.toString()) ||
         !this.graph.hasNode(edgeData.targetId.toString())) {
       console.warn('Edge references non-existent nodes, skipping:', edgeData);
       return false;

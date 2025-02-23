@@ -32,11 +32,20 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
       messages: [
         {
           role: "system",
-          content: `You are a knowledge graph expansion system. Given the current graph nodes and a prompt, generate new nodes and edges to expand the graph. Format the response as JSON with the following structure:
+          content: `You are a knowledge graph expansion system that uses iterative reasoning. 
+          First, generate reasoning tokens in the format:
+          <|thinking|>
+          [Your step-by-step reasoning about how to expand the graph based on the prompt]
+          </|thinking|>
+
+          Then, generate new nodes and edges as JSON with the structure:
           {
             "nodes": [{ "label": string, "type": string, "metadata": object }],
-            "edges": [{ "sourceId": number, "targetId": number, "label": string, "weight": number }]
-          }`
+            "edges": [{ "sourceId": number, "targetId": number, "label": string, "weight": number }],
+            "nextQuestion": string
+          }
+
+          The nextQuestion should be based on the newly added nodes and edges to guide the next iteration.`
         },
         {
           role: "user",
@@ -50,7 +59,12 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
       throw new Error('No content in OpenAI response');
     }
 
-    let result: { nodes: InsertNode[]; edges: InsertEdge[] };
+    let result: {
+      nodes: InsertNode[];
+      edges: InsertEdge[];
+      nextQuestion: string;
+    };
+
     try {
       result = JSON.parse(response.choices[0].message.content);
     } catch (error) {
