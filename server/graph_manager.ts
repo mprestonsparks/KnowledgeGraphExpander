@@ -1,6 +1,6 @@
 import Graph from "graphology";
 import { centrality } from "graphology-metrics";
-import { type Node, type Edge, type GraphData, type InsertNode, type InsertEdge } from "@shared/schema";
+import { type Node, type Edge, type GraphData } from "@shared/schema";
 import { storage } from "./storage";
 import { expandGraph } from "./openai_client";
 
@@ -9,7 +9,7 @@ export class GraphManager {
   private isExpanding: boolean = false;
 
   constructor() {
-    this.graph = new Graph({ type: "directed" });
+    this.graph = new Graph({ type: "directed", multi: false });
   }
 
   async initialize() {
@@ -34,15 +34,19 @@ export class GraphManager {
   async expand(prompt: string): Promise<GraphData> {
     console.log('Starting expansion with prompt:', prompt);
     console.log('Current graph state:', {
-      nodes: this.graph.order(),
-      edges: this.graph.size(),
+      nodes: this.graph.order,
+      edges: this.graph.size,
       isExpanding: this.isExpanding
     });
 
     if (this.isExpanding) {
-      console.log('Expansion already in progress, returning current state');
-      const currentState = this.calculateMetrics();
-      return currentState;
+      console.log('Expansion already in progress, returning empty update');
+      const metrics = this.calculateMetrics();
+      return {
+        nodes: [],
+        edges: [],
+        metrics: metrics.metrics
+      };
     }
 
     try {
@@ -61,6 +65,7 @@ export class GraphManager {
       // Create nodes first to get their IDs
       for (const nodeData of newData.nodes) {
         try {
+          // Skip if node already exists (for concurrent operations)
           const node = await storage.createNode(nodeData);
           console.log('Created node:', { id: node.id, label: node.label });
 
@@ -124,18 +129,19 @@ export class GraphManager {
         }
       }
 
-      const currentState = this.calculateMetrics();
+      const metrics = this.calculateMetrics();
       console.log('Expansion complete. Current graph state:', {
-        totalNodes: this.graph.order(),
-        totalEdges: this.graph.size(),
+        totalNodes: this.graph.order,
+        totalEdges: this.graph.size,
         newNodes: createdNodes.length,
         newEdges: createdEdges.length
       });
 
+      // Return only the newly created items
       return {
-        nodes: [...createdNodes, ...currentState.nodes],
-        edges: [...createdEdges, ...currentState.edges],
-        metrics: currentState.metrics
+        nodes: createdNodes,
+        edges: createdEdges,
+        metrics: metrics.metrics
       };
 
     } finally {
