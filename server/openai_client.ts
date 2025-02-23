@@ -5,7 +5,7 @@ import { type InsertNode, type InsertEdge } from "@shared/schema";
 let openaiInstance: OpenAI | null = null;
 
 export function initializeOpenAI(apiKey: string) {
-  openaiInstance = new OpenAI({ 
+  openaiInstance = new OpenAI({
     apiKey,
     dangerouslyAllowBrowser: true // Required for test environment
   });
@@ -22,7 +22,7 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
     initializeOpenAI(process.env.OPENAI_API_KEY || '');
   }
 
-  const existingNodes = Array.from(currentGraph.nodes()).map(nodeId => 
+  const existingNodes = Array.from(currentGraph.nodes()).map(nodeId =>
     currentGraph.getNodeAttributes(nodeId)
   );
 
@@ -83,18 +83,22 @@ export async function suggestRelationships(currentGraph: Graph): Promise<Relatio
     initializeOpenAI(process.env.OPENAI_API_KEY || '');
   }
 
-  const nodes = Array.from(currentGraph.nodes()).map(nodeId => 
-    currentGraph.getNodeAttributes(nodeId)
-  );
+  // Get all nodes and their metadata
+  const nodes = Array.from(currentGraph.nodes()).map(nodeId => ({
+    id: parseInt(nodeId),
+    ...currentGraph.getNodeAttributes(nodeId)
+  }));
 
-  const existingEdges = Array.from(currentGraph.edges()).map(edgeId => {
-    const edge = currentGraph.getEdgeAttributes(edgeId);
-    return {
-      source: currentGraph.source(edgeId),
-      target: currentGraph.target(edgeId),
-      label: edge.label
-    };
-  });
+  // Get existing relationships for context
+  const existingEdges = Array.from(currentGraph.edges()).map(edgeId => ({
+    source: parseInt(currentGraph.source(edgeId)),
+    target: parseInt(currentGraph.target(edgeId)),
+    ...currentGraph.getEdgeAttributes(edgeId)
+  }));
+
+  if (nodes.length < 2) {
+    return []; // Not enough nodes for suggestions
+  }
 
   try {
     const response = await openaiInstance!.chat.completions.create({
@@ -102,41 +106,56 @@ export async function suggestRelationships(currentGraph: Graph): Promise<Relatio
       messages: [
         {
           role: "system",
-          content: `You are a knowledge graph relationship expert. Analyze the current nodes and edges, then suggest potential new relationships between existing nodes. For each suggestion, provide:
-          - The source and target node IDs
-          - A descriptive label for the relationship
-          - A confidence score (0-1)
-          - A brief explanation of why this relationship might be valid
+          content: `You are a knowledge graph relationship expert. Analyze the current nodes and edges, then suggest potential new relationships between existing nodes that don't already have direct connections. For each suggestion:
+          - Choose nodes that would benefit from being connected
+          - Provide a specific, descriptive label for the relationship
+          - Assign a confidence score based on semantic relevance
+          - Include a brief explanation of the suggested connection
           Format as JSON array: [{ "sourceId": number, "targetId": number, "label": string, "confidence": number, "explanation": string }]`
         },
         {
           role: "user",
-          content: `Nodes: ${JSON.stringify(nodes)}\nExisting Edges: ${JSON.stringify(existingEdges)}\nSuggest new relationships between these nodes.`
+          content: `Current graph state:\nNodes: ${JSON.stringify(nodes, null, 2)}\nExisting connections: ${JSON.stringify(existingEdges, null, 2)}\n\nSuggest 2-3 new relationships between nodes that don't already have direct connections.`
         }
       ],
       response_format: { type: "json_object" }
     });
 
     if (!response.choices?.[0]?.message?.content) {
-      throw new Error('No content in OpenAI response');
+      console.error('No content in OpenAI response');
+      return [];
     }
 
-    const result = JSON.parse(response.choices[0].message.content);
-    if (!Array.isArray(result)) {
-      throw new Error('Invalid response format from OpenAI');
+    let result: RelationshipSuggestion[];
+    try {
+      const parsed = JSON.parse(response.choices[0].message.content);
+      result = Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      console.error('Failed to parse OpenAI response:', error);
+      return [];
     }
 
-    return result.map((suggestion: any) => ({
-      sourceId: parseInt(suggestion.sourceId),
-      targetId: parseInt(suggestion.targetId),
-      label: suggestion.label,
-      confidence: Math.min(1, Math.max(0, parseFloat(suggestion.confidence))),
-      explanation: suggestion.explanation
-    }));
+    // Validate and filter suggestions
+    return result
+      .filter(suggestion =>
+        // Ensure IDs are valid
+        nodes.some(n => n.id === suggestion.sourceId) &&
+        nodes.some(n => n.id === suggestion.targetId) &&
+        // Ensure this connection doesn't already exist
+        !existingEdges.some(e =>
+          (e.source === suggestion.sourceId && e.target === suggestion.targetId) ||
+          (e.source === suggestion.targetId && e.target === suggestion.sourceId)
+        )
+      )
+      .map(suggestion => ({
+        sourceId: suggestion.sourceId,
+        targetId: suggestion.targetId,
+        label: suggestion.label,
+        confidence: Math.min(1, Math.max(0, parseFloat(suggestion.confidence.toString()))),
+        explanation: suggestion.explanation
+      }));
   } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('Failed to get relationship suggestions');
+    console.error('Error getting relationship suggestions:', error);
+    return [];
   }
 }

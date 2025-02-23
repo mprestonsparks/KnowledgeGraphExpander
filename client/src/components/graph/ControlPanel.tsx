@@ -9,7 +9,7 @@ import { queryClient } from "@/lib/queryClient";
 
 export function ControlPanel() {
   const [prompt, setPrompt] = useState("");
-  
+
   const expandMutation = useMutation({
     mutationFn: expandGraph,
     onSuccess: () => {
@@ -20,15 +20,16 @@ export function ControlPanel() {
 
   return (
     <Card className="w-full">
-      <CardHeader className="text-lg font-semibold">
-        Graph Control
+      <CardHeader>
+        <h2 className="text-xl font-semibold">Graph Control</h2>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent>
         <div className="flex gap-2">
           <Input
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="Enter prompt to expand graph..."
+            className="flex-1"
             disabled={expandMutation.isPending}
           />
           <Button 
