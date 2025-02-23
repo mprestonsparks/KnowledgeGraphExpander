@@ -4,3 +4,6 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+# Test reports
+tests/reports/*
+!tests/reports/.gitkeep

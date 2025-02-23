@@ -37,7 +37,10 @@ export class WebSocketClient {
     };
 
     this.ws.onclose = (event) => {
-      console.log('WebSocket connection closed:', event.code, event.reason);
+      // Add null checks for event properties
+      const code = event?.code ?? 'unknown';
+      const reason = event?.reason ?? 'no reason provided';
+      console.log('WebSocket connection closed:', code, reason);
       this.handleReconnect();
     };
   }

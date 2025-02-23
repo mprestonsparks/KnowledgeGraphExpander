@@ -1,3 +1,4 @@
+// Update the test script configuration to use vitest
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";

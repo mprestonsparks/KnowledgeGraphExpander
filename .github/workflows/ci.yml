@@ -12,17 +12,47 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    
+
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
         node-version: '20'
-        
+
     - name: Install dependencies
       run: npm ci
-      
-    - name: Run tests
-      run: npm run test
+
+    - name: Run tests and generate report
+      run: |
+        mkdir -p tests/reports
+        npm run test 2>&1 | tee tests/reports/test-output.txt
+        echo "Test Summary:" > tests/reports/test-summary.md
+        echo "\`\`\`" >> tests/reports/test-summary.md
+        grep -A 5 "Test Files" tests/reports/test-output.txt >> tests/reports/test-summary.md
+        echo "\`\`\`" >> tests/reports/test-summary.md
       env:
         DATABASE_URL: ${{ secrets.DATABASE_URL }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    - name: Review test reports
+      run: |
+        if [ -d "tests/reports" ]; then
+          echo "Test Reports Found:"
+          ls -la tests/reports/
+          echo "Test Summary:"
+          cat tests/reports/test-summary.md
+
+          # Check for test failures
+          if grep -q "failed" tests/reports/test-output.txt; then
+            echo "::warning ::Tests have failed - please review the test report"
+          fi
+        else
+          echo "::error ::No test reports found in tests/reports/"
+          exit 1
+        fi
+
+    - name: Upload test reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-reports
+        path: tests/reports/
+        retention-days: 14
