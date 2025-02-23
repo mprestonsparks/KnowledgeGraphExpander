@@ -10,6 +10,7 @@ import { type GraphData } from "@shared/schema";
 export default function Home() {
   const { data, isLoading } = useQuery<GraphData>({
     queryKey: ["/api/graph"],
+    refetchInterval: false
   });
 
   useEffect(() => {
@@ -28,17 +29,17 @@ export default function Home() {
   }
 
   return (
-    <div className="flex h-screen bg-background">
-      <div className="flex-1 flex flex-col p-4">
-        <div className="h-24">
-          <ControlPanel />
-        </div>
-        <div className="flex-1">
+    <div className="flex flex-col h-screen bg-background">
+      <div className="h-24 p-4">
+        <ControlPanel />
+      </div>
+      <div className="flex flex-1 p-4 gap-4">
+        <div className="flex-1 rounded-lg border border-border">
           <GraphViewer data={data} />
         </div>
-      </div>
-      <div className="w-80 p-4 border-l border-border">
-        <MetricsPanel data={data} />
+        <div className="w-80">
+          <MetricsPanel data={data} />
+        </div>
       </div>
     </div>
   );
