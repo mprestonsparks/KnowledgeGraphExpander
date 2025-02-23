@@ -53,25 +53,30 @@ export class GraphManager {
 
   private async performIterativeExpansion(initialPrompt: string): Promise<void> {
     let currentPrompt = initialPrompt;
+    this.currentIteration = 0;
 
     while (this.currentIteration < this.maxIterations) {
-      console.log(`Iteration ${this.currentIteration + 1}/${this.maxIterations}`);
+      console.log(`Starting iteration ${this.currentIteration + 1}/${this.maxIterations}`);
+      console.log('Current prompt:', currentPrompt);
 
       const expansion = await expandGraph(currentPrompt, this.graph);
 
-      // Process nodes
+      console.log('Reasoning output:', expansion.reasoning);
+
+      // Process nodes from this iteration
       for (const nodeData of expansion.nodes) {
         try {
           const node = await storage.createNode(nodeData);
           if (!this.graph.hasNode(node.id.toString())) {
             this.graph.addNode(node.id.toString(), { ...node });
+            console.log('Added new node:', node.label);
           }
         } catch (error) {
           console.error('Failed to create node:', error);
         }
       }
 
-      // Process edges
+      // Process edges from this iteration
       for (const edgeData of expansion.edges) {
         try {
           if (!this.validateEdgeData(edgeData)) {
@@ -85,6 +90,7 @@ export class GraphManager {
               edge.targetId.toString(),
               { ...edge }
             );
+            console.log('Added new edge:', `${edge.sourceId}-${edge.targetId}: ${edge.label}`);
           }
         } catch (error) {
           console.error('Failed to create edge:', error);
@@ -93,33 +99,13 @@ export class GraphManager {
 
       // Update prompt for next iteration
       currentPrompt = expansion.nextQuestion;
+      console.log('Next iteration prompt:', currentPrompt);
+
       this.currentIteration++;
 
       // Allow some time between iterations
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
-  }
-
-  async suggestRelationships(): Promise<RelationshipSuggestion[]> {
-    return suggestRelationships(this.graph);
-  }
-
-  async applyRelationship(edgeData: InsertEdge): Promise<GraphData> {
-    if (!this.validateEdgeData(edgeData)) {
-      throw new Error('Invalid edge data');
-    }
-
-    const edge = await storage.createEdge(edgeData);
-    if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
-      this.graph.addEdge(
-        edge.sourceId.toString(),
-        edge.targetId.toString(),
-        { ...edge }
-      );
-      console.log('Added suggested edge:', `${edge.sourceId}-${edge.targetId}`);
-    }
-
-    return this.calculateMetrics();
   }
 
   private validateEdgeData(edgeData: any): boolean {

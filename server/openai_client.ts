@@ -22,9 +22,21 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
     initializeOpenAI(process.env.OPENAI_API_KEY || '');
   }
 
-  const existingNodes = Array.from(currentGraph.nodes()).map(nodeId =>
-    currentGraph.getNodeAttributes(nodeId)
-  );
+  const existingNodes = Array.from(currentGraph.nodes()).map(nodeId => ({
+    id: parseInt(nodeId),
+    ...currentGraph.getNodeAttributes(nodeId)
+  }));
+
+  const existingEdges = Array.from(currentGraph.edges()).map(edgeId => ({
+    source: parseInt(currentGraph.source(edgeId)),
+    target: parseInt(currentGraph.target(edgeId)),
+    ...currentGraph.getEdgeAttributes(edgeId)
+  }));
+
+  console.log('Current graph state:', {
+    nodes: existingNodes,
+    edges: existingEdges
+  });
 
   try {
     const response = await openaiInstance!.chat.completions.create({
@@ -32,24 +44,40 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
       messages: [
         {
           role: "system",
-          content: `You are a knowledge graph expansion system that uses iterative reasoning. 
-          First, generate reasoning tokens in the format:
-          <|thinking|>
-          [Your step-by-step reasoning about how to expand the graph based on the prompt]
-          </|thinking|>
+          content: `You are a knowledge graph reasoning system. Follow these steps:
 
-          Then, generate new nodes and edges as JSON with the structure:
-          {
-            "nodes": [{ "label": string, "type": string, "metadata": object }],
-            "edges": [{ "sourceId": number, "targetId": number, "label": string, "weight": number }],
-            "nextQuestion": string
-          }
+1. First, provide your reasoning about how to expand the graph based on the prompt:
+<|thinking|>
+[Step-by-step reasoning about potential new concepts and relationships]
+</|thinking|>
 
-          The nextQuestion should be based on the newly added nodes and edges to guide the next iteration.`
+2. Then, extract a local graph with new nodes and edges based on your reasoning.
+Return the result as JSON:
+{
+  "reasoning": string, // Your <|thinking|> block
+  "nodes": [{ 
+    "label": string,
+    "type": string,
+    "metadata": { description: string }
+  }],
+  "edges": [{ 
+    "sourceId": number,
+    "targetId": number,
+    "label": string,
+    "weight": number
+  }],
+  "nextQuestion": string // A follow-up question based on the new nodes/edges
+}
+
+Focus on quality over quantity - suggest only a few highly relevant nodes and edges per iteration.`
         },
         {
           role: "user",
-          content: `Current nodes: ${JSON.stringify(existingNodes)}\nPrompt: ${prompt}`
+          content: `Current graph state:
+Nodes: ${JSON.stringify(existingNodes, null, 2)}
+Edges: ${JSON.stringify(existingEdges, null, 2)}
+
+Prompt for expansion: ${prompt}`
         }
       ],
       response_format: { type: "json_object" }
@@ -59,21 +87,21 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
       throw new Error('No content in OpenAI response');
     }
 
-    let result: {
-      nodes: InsertNode[];
-      edges: InsertEdge[];
-      nextQuestion: string;
-    };
-
+    let result;
     try {
       result = JSON.parse(response.choices[0].message.content);
+      console.log('Parsed expansion result:', result);
     } catch (error) {
       throw new Error('Invalid JSON response from OpenAI');
     }
 
-    if (!Array.isArray(result.nodes) || !Array.isArray(result.edges)) {
+    if (!result.nodes || !Array.isArray(result.nodes) || !result.edges || !Array.isArray(result.edges)) {
       throw new Error('Invalid response format from OpenAI');
     }
+
+    // Log the reasoning process
+    console.log('Reasoning process:', result.reasoning);
+    console.log('Generated next question:', result.nextQuestion);
 
     return result;
   } catch (error) {
