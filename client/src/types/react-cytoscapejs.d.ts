@@ -1,10 +1,10 @@
 declare module 'react-cytoscapejs' {
   import { Component } from 'react';
-  import { Core, ElementDefinition, LayoutOptions, Stylesheet } from 'cytoscape';
+  import type { Core, ElementDefinition, LayoutOptions, Stylesheet } from 'cytoscape';
 
   interface CytoscapeComponentProps {
     elements: ElementDefinition[];
-    stylesheet: Stylesheet[];
+    stylesheet?: Stylesheet[] | any[];
     layout?: LayoutOptions;
     style?: React.CSSProperties;
     cy?: (cy: Core) => void;

@@ -1,4 +1,9 @@
-import { type Node, type Edge, type InsertNode, type InsertEdge, type GraphData } from "@shared/schema";
+import { drizzle } from "drizzle-orm/neon-serverless";
+import { neon } from "@neondatabase/serverless";
+import { type Node, type Edge, type InsertNode, type InsertEdge, type GraphData, nodes, edges } from "@shared/schema";
+
+const sql = neon(process.env.DATABASE_URL!);
+const db = drizzle(sql);
 
 export interface IStorage {
   // Node operations
@@ -15,61 +20,44 @@ export interface IStorage {
   getFullGraph(): Promise<GraphData>;
 }
 
-export class MemStorage implements IStorage {
-  private nodes: Map<number, Node>;
-  private edges: Map<number, Edge>;
-  private nodeId: number;
-  private edgeId: number;
-
-  constructor() {
-    this.nodes = new Map();
-    this.edges = new Map();
-    this.nodeId = 1;
-    this.edgeId = 1;
-  }
-
+class PostgresStorage implements IStorage {
   async getNode(id: number): Promise<Node | undefined> {
-    return this.nodes.get(id);
+    const result = await db.select().from(nodes).where({ id }).limit(1);
+    return result[0];
   }
 
   async getAllNodes(): Promise<Node[]> {
-    return Array.from(this.nodes.values());
+    return db.select().from(nodes);
   }
 
   async createNode(insertNode: InsertNode): Promise<Node> {
-    const id = this.nodeId++;
-    const node: Node = { 
-      id, 
-      ...insertNode,
-      metadata: insertNode.metadata || null
-    };
-    this.nodes.set(id, node);
-    return node;
+    const result = await db.insert(nodes).values(insertNode).returning();
+    return result[0];
   }
 
   async getEdge(id: number): Promise<Edge | undefined> {
-    return this.edges.get(id);
+    const result = await db.select().from(edges).where({ id }).limit(1);
+    return result[0];
   }
 
   async getAllEdges(): Promise<Edge[]> {
-    return Array.from(this.edges.values());
+    return db.select().from(edges);
   }
 
   async createEdge(insertEdge: InsertEdge): Promise<Edge> {
-    const id = this.edgeId++;
-    const edge: Edge = { 
-      id, 
-      ...insertEdge,
-      weight: insertEdge.weight || 1
-    };
-    this.edges.set(id, edge);
-    return edge;
+    const result = await db.insert(edges).values(insertEdge).returning();
+    return result[0];
   }
 
   async getFullGraph(): Promise<GraphData> {
+    const [graphNodes, graphEdges] = await Promise.all([
+      this.getAllNodes(),
+      this.getAllEdges()
+    ]);
+
     return {
-      nodes: await this.getAllNodes(),
-      edges: await this.getAllEdges(),
+      nodes: graphNodes,
+      edges: graphEdges,
       metrics: {
         betweenness: {},
         eigenvector: {},
@@ -79,4 +67,4 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new PostgresStorage();

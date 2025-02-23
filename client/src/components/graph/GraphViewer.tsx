@@ -24,7 +24,9 @@ const styleSheet = [
       "color": "hsl(var(--foreground))",
       "text-valign": "center",
       "text-halign": "center",
-      "font-size": "12px"
+      "font-size": "12px",
+      "text-wrap": "wrap",
+      "text-max-width": "80px"
     }
   },
   {
@@ -36,7 +38,8 @@ const styleSheet = [
       "target-arrow-shape": "triangle",
       "curve-style": "bezier",
       "label": "data(label)",
-      "font-size": "10px"
+      "font-size": "10px",
+      "text-rotation": "autorotate"
     }
   },
   {

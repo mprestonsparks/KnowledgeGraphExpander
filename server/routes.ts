@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { graphManager } from "./graph_manager";
 import { z } from "zod";
@@ -16,7 +16,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Broadcast graph updates to all connected clients
   function broadcastUpdate(data: any) {
-    wss.clients.forEach((client: WebSocket) => {
+    wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(data));
       }
@@ -24,7 +24,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // WebSocket connection handling
-  wss.on('connection', (ws: WebSocket) => {
+  wss.on('connection', (ws) => {
     console.log('Client connected');
 
     ws.on('close', () => {
