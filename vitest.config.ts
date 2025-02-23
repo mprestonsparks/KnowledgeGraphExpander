@@ -10,7 +10,14 @@ export default defineConfig({
     include: ["**/*.test.{ts,tsx}"],
     coverage: {
       reporter: ["text", "json", "html"],
+      exclude: [
+        "node_modules/",
+        "dist/",
+        ".github/",
+        "**/*.d.ts",
+      ],
     },
+    globals: true,
   },
   resolve: {
     alias: {

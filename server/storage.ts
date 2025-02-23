@@ -1,34 +1,7 @@
 import { drizzle } from "drizzle-orm/neon-serverless";
-import { neon, neonConfig } from "@neondatabase/serverless";
 import { eq } from "drizzle-orm";
 import { type Node, type Edge, type InsertNode, type InsertEdge, type GraphData, nodes, edges } from "@shared/schema";
-import { WebSocket } from "ws";
-
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL environment variable is required");
-}
-
-// Configure neon to use WebSocket for better performance
-neonConfig.webSocketConstructor = WebSocket;
-// Initialize neon client with proper configuration
-const sql = neon(process.env.DATABASE_URL!);
-
-// Initialize drizzle with the neon client
-const db = drizzle(sql);
-
-// Test database connection
-async function testConnection() {
-  try {
-    const result = await sql`SELECT 1`;
-    console.log('Database connection successful:', result);
-  } catch (error) {
-    console.error('Database connection failed:', error);
-    throw error;
-  }
-}
-
-// Initialize connection
-testConnection().catch(console.error);
+import { db } from "./db";
 
 export interface IStorage {
   // Node operations
@@ -128,4 +101,3 @@ class PostgresStorage implements IStorage {
 }
 
 export const storage = new PostgresStorage();
-export { db, sql }; // Export for testing

@@ -56,30 +56,46 @@ export function GraphViewer({ data }: GraphViewerProps) {
   const cyRef = useRef<Core | null>(null);
 
   useEffect(() => {
-    if (!cyRef.current) return;
+    console.log('GraphViewer useEffect starting, cyRef:', cyRef.current ? 'initialized' : 'not initialized');
+    if (!cyRef.current) {
+      console.log('No Cytoscape instance available');
+      return;
+    }
 
-    const elements: ElementDefinition[] = [
-      ...data.nodes.map(node => ({
-        data: { 
-          id: node.id.toString(),
-          label: node.label,
-          degree: data.metrics.degree[node.id] || 0
-        }
-      })),
-      ...data.edges.map(edge => ({
-        data: {
-          id: `e${edge.id}`,
-          source: edge.sourceId.toString(),
-          target: edge.targetId.toString(),
-          label: edge.label,
-          weight: edge.weight
-        }
-      }))
-    ];
+    try {
+      console.log('Processing graph data:', { nodes: data.nodes.length, edges: data.edges.length });
+      const elements: ElementDefinition[] = [
+        ...data.nodes.map(node => ({
+          data: { 
+            id: node.id.toString(),
+            label: node.label,
+            degree: data.metrics.degree[node.id] || 0
+          }
+        })),
+        ...data.edges.map(edge => ({
+          data: {
+            id: `e${edge.id}`,
+            source: edge.sourceId.toString(),
+            target: edge.targetId.toString(),
+            label: edge.label,
+            weight: edge.weight
+          }
+        }))
+      ];
 
-    cyRef.current.elements().remove();
-    cyRef.current.add(elements);
-    cyRef.current.layout(layoutConfig).run();
+      console.log('Removing existing elements');
+      cyRef.current.elements().remove();
+
+      console.log('Adding new elements:', elements.length);
+      cyRef.current.add(elements);
+
+      console.log('Running layout');
+      cyRef.current.layout(layoutConfig).run();
+
+      console.log('Graph update completed successfully');
+    } catch (error) {
+      console.error('Error updating graph:', error);
+    }
   }, [data]);
 
   return (
@@ -88,7 +104,10 @@ export function GraphViewer({ data }: GraphViewerProps) {
         elements={[]}
         stylesheet={styleSheet}
         layout={layoutConfig}
-        cy={(cy) => { cyRef.current = cy; }}
+        cy={(cy) => {
+          console.log('Cytoscape instance initialized');
+          cyRef.current = cy;
+        }}
         className="w-full h-full"
       />
     </div>
