@@ -23,14 +23,7 @@ const layoutConfig = {
   numIter: 10000,
   initialTemp: 1000,
   coolingFactor: 0.99,
-  minTemp: 1.0,
-  // Add promise and ready events for proper sequence handling
-  ready: function() {
-    console.log('Layout ready');
-  },
-  stop: function() {
-    console.log('Layout complete');
-  }
+  minTemp: 1.0
 };
 
 const styleSheet = [
@@ -200,40 +193,50 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     validateGraphElements(nodeElements, edgeElements);
 
-    // Update graph elements
+    // Remove existing elements
     cyRef.current.elements().remove();
-    cyRef.current.add([...nodeElements, ...edgeElements]);
 
-    // Apply base styles before layout
+    // Add new elements with initial styles
+    cyRef.current.add([...nodeElements, ...edgeElements]);
     cyRef.current.style(styleSheet);
 
-    // Run layout with proper sequencing
-    const layout = cyRef.current.layout(layoutConfig);
-
-    // Use promise to ensure styles are maintained after layout
-    layout.promiseOn('layoutstop').then(() => {
-      console.log('Layout complete, applying final styles');
-
-      // Reapply cluster styles
+    // Function to apply cluster styles
+    const applyClusterStyles = () => {
       cyRef.current?.nodes().forEach(node => {
-        if (node.data('clusterColor')) {
+        const clusterColor = node.data('clusterColor');
+        if (clusterColor) {
           node.addClass('clustered');
         }
         if (node.degree() === 0) {
           node.addClass('disconnected');
         }
       });
-
-      // Force style refresh
       cyRef.current?.style().update();
+    };
 
-      // Log final state
-      console.log('Final graph state:', {
-        nodes: cyRef.current?.nodes().length,
-        clusteredNodes: cyRef.current?.nodes('.clustered').length,
-        centroidNodes: cyRef.current?.nodes('.centroid').length,
-        disconnectedNodes: cyRef.current?.nodes('.disconnected').length
-      });
+    // First apply styles
+    applyClusterStyles();
+
+    // Run layout
+    const layout = cyRef.current.layout(layoutConfig);
+
+    // Add event handlers for layout
+    layout.on('layoutstart', () => {
+      console.log('Layout started');
+    });
+
+    layout.on('layoutstop', () => {
+      console.log('Layout stopped, reapplying styles');
+      setTimeout(() => {
+        applyClusterStyles();
+        cyRef.current?.fit();
+        console.log('Final graph state:', {
+          nodes: cyRef.current?.nodes().length,
+          clusteredNodes: cyRef.current?.nodes('.clustered').length,
+          centroidNodes: cyRef.current?.nodes('.centroid').length,
+          disconnectedNodes: cyRef.current?.nodes('.disconnected').length
+        });
+      }, 50);
     });
 
     layout.run();
