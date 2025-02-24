@@ -26,7 +26,14 @@ export class WebSocketClient {
       try {
         console.log('WebSocket message received');
         const data = JSON.parse(event.data) as GraphData;
-        this.callbacks.forEach(callback => callback(data));
+        console.log('Parsed graph data:', {
+          nodes: data.nodes.length,
+          edges: data.edges.length
+        });
+        this.callbacks.forEach(callback => {
+          console.log('Executing callback to update graph state');
+          callback(data);
+        });
       } catch (error) {
         console.error('Failed to parse WebSocket message:', error);
       }
@@ -37,7 +44,6 @@ export class WebSocketClient {
     };
 
     this.ws.onclose = (event) => {
-      // Add null checks for event properties
       const code = event?.code ?? 'unknown';
       const reason = event?.reason ?? 'no reason provided';
       console.log('WebSocket connection closed:', code, reason);
@@ -50,7 +56,6 @@ export class WebSocketClient {
       this.reconnectAttempts++;
       console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
 
-      // Exponential backoff
       setTimeout(() => {
         this.connect();
         this.reconnectDelay *= 2;

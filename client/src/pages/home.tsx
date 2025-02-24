@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { GraphViewer } from "@/components/graph/GraphViewer";
 import { ControlPanel } from "@/components/graph/ControlPanel";
 import { MetricsPanel } from "@/components/graph/MetricsPanel";
-import { SuggestionsPanel } from "@/components/graph/SuggestionsPanel";
 import { wsClient } from "@/lib/websocket";
 import { queryClient } from "@/lib/queryClient";
 import { type GraphData } from "@shared/schema";
@@ -15,8 +14,11 @@ export default function Home() {
   });
 
   useEffect(() => {
+    console.log('Setting up WebSocket connection');
     wsClient.connect();
+
     return wsClient.subscribe((newData) => {
+      console.log('Received graph update, updating query cache');
       queryClient.setQueryData(["/api/graph"], newData);
     });
   }, []);
@@ -29,6 +31,11 @@ export default function Home() {
     );
   }
 
+  console.log('Rendering graph with data:', {
+    nodes: data.nodes.length,
+    edges: data.edges.length
+  });
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto p-4">
@@ -36,7 +43,6 @@ export default function Home() {
           {/* Left column - Controls and Suggestions */}
           <div className="lg:col-span-3 space-y-4">
             <ControlPanel />
-            <SuggestionsPanel />
           </div>
 
           {/* Main content - Graph Viewer */}

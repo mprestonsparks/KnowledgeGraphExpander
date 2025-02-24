@@ -9,7 +9,7 @@ export class GraphManager {
   private isExpanding: boolean = false;
   private expandPromise: Promise<void> | null = null;
   private currentIteration: number = 0;
-  private maxIterations: number = 1000; // As mentioned in the paper
+  private maxIterations: number = process.env.NODE_ENV === 'test' ? 1 : 1000;
 
   constructor() {
     this.graph = new Graph({ type: "directed", multi: false });
@@ -17,16 +17,30 @@ export class GraphManager {
 
   async initialize() {
     const { nodes, edges } = await storage.getFullGraph();
+
+    // Add nodes first
     nodes.forEach(node => {
-      this.graph.addNode(node.id.toString(), { ...node });
+      if (!this.graph.hasNode(node.id.toString())) {
+        this.graph.addNode(node.id.toString(), { ...node });
+      }
     });
 
+    // Then add edges, checking for duplicates
     edges.forEach(edge => {
-      this.graph.addEdge(
-        edge.sourceId.toString(),
-        edge.targetId.toString(),
-        { ...edge }
-      );
+      const sourceId = edge.sourceId.toString();
+      const targetId = edge.targetId.toString();
+
+      // Only add edge if both nodes exist and edge doesn't already exist
+      if (this.graph.hasNode(sourceId) && 
+          this.graph.hasNode(targetId) &&
+          !this.graph.hasEdge(sourceId, targetId)) {
+        this.graph.addEdge(sourceId, targetId, { ...edge });
+      }
+    });
+
+    console.log('Graph initialized:', {
+      nodes: this.graph.order,
+      edges: this.graph.size
     });
   }
 
@@ -59,52 +73,65 @@ export class GraphManager {
       console.log(`Starting iteration ${this.currentIteration + 1}/${this.maxIterations}`);
       console.log('Current prompt:', currentPrompt);
 
-      const expansion = await expandGraph(currentPrompt, this.graph);
+      try {
+        const expansion = await expandGraph(currentPrompt, this.graph);
 
-      console.log('Reasoning output:', expansion.reasoning);
-
-      // Process nodes from this iteration
-      for (const nodeData of expansion.nodes) {
-        try {
-          const node = await storage.createNode(nodeData);
-          if (!this.graph.hasNode(node.id.toString())) {
-            this.graph.addNode(node.id.toString(), { ...node });
-            console.log('Added new node:', node.label);
-          }
-        } catch (error) {
-          console.error('Failed to create node:', error);
+        // Safely log reasoning if it exists
+        if (expansion.reasoning) {
+          console.log('Reasoning output:', expansion.reasoning);
         }
-      }
 
-      // Process edges from this iteration
-      for (const edgeData of expansion.edges) {
-        try {
-          if (!this.validateEdgeData(edgeData)) {
-            continue;
+        // Process nodes from this iteration
+        for (const nodeData of expansion.nodes || []) {
+          try {
+            const node = await storage.createNode(nodeData);
+            if (!this.graph.hasNode(node.id.toString())) {
+              this.graph.addNode(node.id.toString(), { ...node });
+              console.log('Added new node:', node.label);
+            }
+          } catch (error) {
+            console.error('Failed to create node:', error);
           }
-
-          const edge = await storage.createEdge(edgeData);
-          if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
-            this.graph.addEdge(
-              edge.sourceId.toString(),
-              edge.targetId.toString(),
-              { ...edge }
-            );
-            console.log('Added new edge:', `${edge.sourceId}-${edge.targetId}: ${edge.label}`);
-          }
-        } catch (error) {
-          console.error('Failed to create edge:', error);
         }
+
+        // Process edges from this iteration
+        for (const edgeData of expansion.edges || []) {
+          try {
+            if (!this.validateEdgeData(edgeData)) {
+              continue;
+            }
+
+            const edge = await storage.createEdge(edgeData);
+            if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
+              this.graph.addEdge(
+                edge.sourceId.toString(),
+                edge.targetId.toString(),
+                { ...edge }
+              );
+              console.log('Added new edge:', `${edge.sourceId}-${edge.targetId}: ${edge.label}`);
+            }
+          } catch (error) {
+            console.error('Failed to create edge:', error);
+          }
+        }
+
+        // Update prompt for next iteration if available
+        if (expansion.nextQuestion) {
+          currentPrompt = expansion.nextQuestion;
+          console.log('Next iteration prompt:', currentPrompt);
+        } else {
+          console.log('No next question provided, stopping expansion');
+          break;
+        }
+
+        this.currentIteration++;
+
+        // Allow some time between iterations
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (error) {
+        console.error('Error during iteration:', error);
+        break;
       }
-
-      // Update prompt for next iteration
-      currentPrompt = expansion.nextQuestion;
-      console.log('Next iteration prompt:', currentPrompt);
-
-      this.currentIteration++;
-
-      // Allow some time between iterations
-      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
 

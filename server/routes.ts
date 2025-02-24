@@ -17,9 +17,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Broadcast graph updates to all connected clients
   function broadcastUpdate(data: any) {
+    console.log('Broadcasting graph update:', {
+      nodes: data.nodes.length,
+      edges: data.edges.length,
+      connectedClients: wss.clients.size
+    });
+
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(data));
+        console.log('Sent update to client');
       }
     });
   }
@@ -49,9 +56,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const updatedGraph = await graphManager.expand(result.data.prompt);
+      console.log('Graph expanded, broadcasting update');
       broadcastUpdate(updatedGraph);
       res.json(updatedGraph);
     } catch (error) {
+      console.error('Failed to expand graph:', error);
       res.status(500).json({ error: "Failed to expand graph" });
     }
   });
