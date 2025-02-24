@@ -139,8 +139,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/graph/reconnect', async (_req, res) => {
     try {
       console.log('Starting node reconnection process');
+      const graphBefore = await storage.getFullGraph();
+      console.log('Graph state before reconnection:', {
+        nodes: graphBefore.nodes.length,
+        edges: graphBefore.edges.length,
+        disconnectedNodes: graphBefore.nodes.filter(n =>
+          !graphBefore.edges.some(e => e.sourceId === n.id || e.targetId === n.id)
+        ).length
+      });
+
       const updatedGraph = await graphManager.reconnectDisconnectedNodes();
-      console.log('Broadcasting reconnected graph update');
+
+      console.log('Graph state after reconnection:', {
+        nodes: updatedGraph.nodes.length,
+        edges: updatedGraph.edges.length,
+        disconnectedNodes: updatedGraph.nodes.filter(n =>
+          !updatedGraph.edges.some(e => e.sourceId === n.id || e.targetId === n.id)
+        ).length
+      });
+
       broadcastUpdate(updatedGraph);
       res.json(updatedGraph);
     } catch (error) {
