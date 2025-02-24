@@ -46,6 +46,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(graph);
   });
 
+  // Update the existing expand endpoint to use iterative expansion
   app.post('/api/graph/expand', async (req, res) => {
     const schema = z.object({ prompt: z.string() });
     const result = schema.safeParse(req.body);
@@ -55,8 +56,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const updatedGraph = await graphManager.expand(result.data.prompt);
-      console.log('Graph expanded, broadcasting update');
+      const updatedGraph = await graphManager.startIterativeExpansion(result.data.prompt);
+      console.log('Graph expansion complete, broadcasting update');
       broadcastUpdate(updatedGraph);
       res.json(updatedGraph);
     } catch (error) {

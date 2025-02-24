@@ -4,44 +4,51 @@ import { type Node, type Edge, type GraphData, type InsertEdge, type InsertNode 
 import { storage } from "./storage";
 import { expandGraph } from "./openai_client";
 import { SemanticClusteringService, type ClusterResult } from "./semantic_clustering";
-import connectedComponents from "graphology-components";
+import { connectedComponents } from "graphology-components";
 
 interface GraphDataWithClusters extends GraphData {
   clusters: ClusterResult[];
 }
 
+interface ExpansionState {
+  currentIteration: number;
+  maxIterations: number;
+  lastPrompt: string;
+  isExpanding: boolean;
+}
+
 export class GraphManager {
   private graph: Graph;
-  private isExpanding: boolean = false;
-  private expandPromise: Promise<void> | null = null;
-  private currentIteration: number = 0;
-  private maxIterations: number = process.env.NODE_ENV === 'test' ? 1 : 1000;
   private semanticClustering: SemanticClusteringService;
+  private expansionState: ExpansionState;
 
   constructor() {
     this.graph = new Graph({ type: "directed", multi: false });
     this.semanticClustering = new SemanticClusteringService(this.graph);
+    this.expansionState = {
+      currentIteration: 0,
+      maxIterations: process.env.NODE_ENV === 'test' ? 1 : 1000,
+      lastPrompt: "",
+      isExpanding: false
+    };
   }
 
   async initialize() {
     const { nodes, edges } = await storage.getFullGraph();
 
-    // Add nodes first
     nodes.forEach(node => {
       if (!this.graph.hasNode(node.id.toString())) {
         this.graph.addNode(node.id.toString(), { ...node });
       }
     });
 
-    // Then add edges, checking for duplicates
     edges.forEach(edge => {
       const sourceId = edge.sourceId.toString();
       const targetId = edge.targetId.toString();
 
-      // Only add edge if both nodes exist and edge doesn't already exist
       if (this.graph.hasNode(sourceId) &&
-        this.graph.hasNode(targetId) &&
-        !this.graph.hasEdge(sourceId, targetId)) {
+          this.graph.hasNode(targetId) &&
+          !this.graph.hasEdge(sourceId, targetId)) {
         this.graph.addEdge(sourceId, targetId, { ...edge });
       }
     });
@@ -53,25 +60,103 @@ export class GraphManager {
     });
   }
 
-  async expand(prompt: string): Promise<GraphData> {
-    if (this.expandPromise) {
-      console.log('Waiting for ongoing expansion to complete');
-      await this.expandPromise;
+  async startIterativeExpansion(initialPrompt: string): Promise<GraphData> {
+    if (this.expansionState.isExpanding) {
+      console.log('Expansion already in progress');
       return this.calculateMetrics();
     }
 
     try {
-      this.isExpanding = true;
-      console.log('Starting expansion with prompt:', prompt);
+      this.expansionState.isExpanding = true;
+      this.expansionState.lastPrompt = initialPrompt;
+      this.expansionState.currentIteration = 0;
 
-      this.expandPromise = this.performIterativeExpansion(prompt);
-      await this.expandPromise;
+      console.log('Starting iterative expansion with prompt:', initialPrompt);
+
+      while (this.expansionState.currentIteration < this.expansionState.maxIterations) {
+        console.log(`Starting iteration ${this.expansionState.currentIteration + 1}/${this.expansionState.maxIterations}`);
+
+        const expansion = await expandGraph(this.expansionState.lastPrompt, this.graph);
+
+        // Process expansion result
+        const { isValid, validNodes, validEdges } = this.validateExpansionData(
+          expansion.nodes || [],
+          expansion.edges || []
+        );
+
+        if (!isValid) {
+          console.log('Invalid expansion - no valid connected components');
+          break;
+        }
+
+        // Update graph with new nodes and edges
+        await this.updateGraphWithExpansion(validNodes, validEdges);
+
+        // Update prompt for next iteration if available
+        if (expansion.nextQuestion) {
+          this.expansionState.lastPrompt = expansion.nextQuestion;
+        } else {
+          break;
+        }
+
+        this.expansionState.currentIteration++;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
 
       return this.calculateMetrics();
     } finally {
-      this.isExpanding = false;
-      this.expandPromise = null;
+      this.expansionState.isExpanding = false;
     }
+  }
+
+  private async updateGraphWithExpansion(nodes: InsertNode[], edges: InsertEdge[]) {
+    const initialState = {
+      nodes: this.graph.order,
+      edges: this.graph.size,
+      disconnectedBefore: this.countDisconnectedNodes()
+    };
+
+    // Add new nodes
+    for (const nodeData of nodes) {
+      try {
+        const node = await storage.createNode(nodeData);
+        if (!this.graph.hasNode(node.id.toString())) {
+          this.graph.addNode(node.id.toString(), { ...node });
+        }
+      } catch (error) {
+        console.error('Failed to create node:', error);
+      }
+    }
+
+    // Add new edges
+    for (const edgeData of edges) {
+      try {
+        const edge = await storage.createEdge(edgeData);
+        const sourceId = edge.sourceId.toString();
+        const targetId = edge.targetId.toString();
+
+        if (!this.graph.hasEdge(sourceId, targetId)) {
+          this.graph.addEdge(sourceId, targetId, { ...edge });
+        }
+      } catch (error) {
+        console.error('Failed to create edge:', error);
+      }
+    }
+
+    // Log changes
+    const finalState = {
+      nodes: this.graph.order,
+      edges: this.graph.size,
+      disconnectedAfter: this.countDisconnectedNodes()
+    };
+
+    console.log('Expansion update complete:', {
+      before: initialState,
+      after: finalState,
+      nodesAdded: finalState.nodes - initialState.nodes,
+      edgesAdded: finalState.edges - initialState.edges,
+      disconnectedNodeChange: finalState.disconnectedAfter - initialState.disconnectedBefore
+    });
   }
 
   private validateExpansionData(nodes: InsertNode[], edges: InsertEdge[]): {
@@ -176,98 +261,6 @@ export class GraphManager {
     };
   }
 
-  private async performIterativeExpansion(initialPrompt: string): Promise<void> {
-    let currentPrompt = initialPrompt;
-    this.currentIteration = 0;
-
-    while (this.currentIteration < this.maxIterations) {
-      console.log(`Starting iteration ${this.currentIteration + 1}/${this.maxIterations}`);
-      console.log('Current prompt:', currentPrompt);
-
-      try {
-        const expansion = await expandGraph(currentPrompt, this.graph);
-
-        // Log the full expansion result
-        console.log('Raw expansion result:', {
-          nodesProposed: expansion.nodes?.length || 0,
-          edgesProposed: expansion.edges?.length || 0
-        });
-
-        // Validate expansion data
-        const { isValid, validNodes, validEdges } = this.validateExpansionData(
-          expansion.nodes || [],
-          expansion.edges || []
-        );
-
-        if (!isValid) {
-          console.log('Skipping invalid expansion - no valid connected components found');
-          break;
-        }
-
-        // Track initial state for logging
-        const initialState = {
-          nodes: this.graph.order,
-          edges: this.graph.size,
-          disconnectedBefore: this.countDisconnectedNodes()
-        };
-
-        // Process validated nodes and edges
-        for (const nodeData of validNodes) {
-          try {
-            const node = await storage.createNode(nodeData);
-            if (!this.graph.hasNode(node.id.toString())) {
-              this.graph.addNode(node.id.toString(), { ...node });
-            }
-          } catch (error) {
-            console.error('Failed to create node:', error);
-          }
-        }
-
-        // Process validated edges
-        for (const edgeData of validEdges) {
-          try {
-            const edge = await storage.createEdge(edgeData);
-            if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
-              this.graph.addEdge(
-                edge.sourceId.toString(),
-                edge.targetId.toString(),
-                { ...edge }
-              );
-            }
-          } catch (error) {
-            console.error('Failed to create edge:', error);
-          }
-        }
-
-        // Log final state and changes
-        const finalState = {
-          nodes: this.graph.order,
-          edges: this.graph.size,
-          disconnectedAfter: this.countDisconnectedNodes()
-        };
-
-        console.log('Iteration complete:', {
-          before: initialState,
-          after: finalState,
-          nodesAdded: finalState.nodes - initialState.nodes,
-          edgesAdded: finalState.edges - initialState.edges,
-          disconnectedNodeChange: finalState.disconnectedAfter - initialState.disconnectedBefore
-        });
-
-        if (expansion.nextQuestion) {
-          currentPrompt = expansion.nextQuestion;
-        } else {
-          break;
-        }
-
-        this.currentIteration++;
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      } catch (error) {
-        console.error('Error during iteration:', error);
-        break;
-      }
-    }
-  }
 
   async recalculateClusters(): Promise<GraphDataWithClusters> {
     console.log('Recalculating clusters for graph:', {
