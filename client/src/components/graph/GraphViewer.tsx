@@ -23,7 +23,14 @@ const layoutConfig = {
   numIter: 10000,
   initialTemp: 1000,
   coolingFactor: 0.99,
-  minTemp: 1.0
+  minTemp: 1.0,
+  // Add promise and ready events for proper sequence handling
+  ready: function() {
+    console.log('Layout ready');
+  },
+  stop: function() {
+    console.log('Layout complete');
+  }
 };
 
 const styleSheet = [
@@ -103,27 +110,16 @@ const styleSheet = [
 function validateGraphElements(nodes: ElementDefinition[], edges: ElementDefinition[]): void {
   const nodeIds = new Set(nodes.map(n => n.data.id));
   const connectedNodes = new Set<string>();
-  const edgeConnections = new Map<string, Set<string>>();
 
   edges.forEach(edge => {
     if (edge.data.source && edge.data.target) {
       connectedNodes.add(edge.data.source);
       connectedNodes.add(edge.data.target);
-
-      if (!edgeConnections.has(edge.data.source)) {
-        edgeConnections.set(edge.data.source, new Set());
-      }
-      if (!edgeConnections.has(edge.data.target)) {
-        edgeConnections.set(edge.data.target, new Set());
-      }
-      edgeConnections.get(edge.data.source)!.add(edge.data.target);
-      edgeConnections.get(edge.data.target)!.add(edge.data.source);
     }
   });
 
   const disconnectedNodes = Array.from(nodeIds).filter(id => !connectedNodes.has(id));
-
-  console.log('Graph validation results:', {
+  console.log('Graph validation:', {
     totalNodes: nodes.length,
     totalEdges: edges.length,
     disconnectedCount: disconnectedNodes.length
@@ -136,7 +132,7 @@ export function GraphViewer({ data }: GraphViewerProps) {
   useEffect(() => {
     if (!cyRef.current) return;
 
-    console.log('Updating graph with clusters:', {
+    console.log('Updating graph with new data:', {
       nodes: data.nodes.length,
       edges: data.edges.length,
       clusters: data.clusters?.length || 0
@@ -144,7 +140,6 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     // Calculate cluster colors
     const clusterColors = data.clusters?.reduce((acc, cluster) => {
-      // Use a wider color spectrum for better distinction
       const hue = (cluster.clusterId * 137.5) % 360;
       const saturation = 70 + (cluster.clusterId * 5) % 20;
       const lightness = 45 + (cluster.clusterId * 7) % 20;
@@ -162,7 +157,7 @@ export function GraphViewer({ data }: GraphViewerProps) {
       })));
     }
 
-    // Prepare node elements with cluster data
+    // Prepare nodes with cluster data
     const nodeElements = data.nodes.map(node => {
       const nodeCluster = data.clusters?.find(c => 
         c.nodes.includes(node.id.toString())
@@ -179,7 +174,6 @@ export function GraphViewer({ data }: GraphViewerProps) {
         group: 'nodes' as const
       };
 
-      // Apply cluster styling
       if (nodeCluster) {
         element.data.clusterColor = clusterColors[nodeCluster.clusterId];
         element.classes.push('clustered');
@@ -192,7 +186,7 @@ export function GraphViewer({ data }: GraphViewerProps) {
       return element;
     });
 
-    // Prepare edge elements
+    // Prepare edges
     const edgeElements = data.edges.map(edge => ({
       data: {
         id: `e${edge.id}`,
@@ -208,42 +202,48 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     // Update graph elements
     cyRef.current.elements().remove();
-    const elements = [...nodeElements, ...edgeElements];
-    cyRef.current.add(elements);
+    cyRef.current.add([...nodeElements, ...edgeElements]);
 
-    // Apply layout
-    const layout = cyRef.current.layout(layoutConfig);
-    layout.run();
-
-    // Mark disconnected nodes
-    cyRef.current.nodes().forEach(node => {
-      if (node.degree() === 0) {
-        node.addClass('disconnected');
-      } else {
-        node.removeClass('disconnected');
-      }
-    });
-
-    // Force style application
+    // Apply base styles before layout
     cyRef.current.style(styleSheet);
 
-    // Fit the graph
-    cyRef.current.fit();
+    // Run layout with proper sequencing
+    const layout = cyRef.current.layout(layoutConfig);
 
-    // Log final state
-    console.log('Graph updated with styles:', {
-      nodes: cyRef.current.nodes().length,
-      clusteredNodes: cyRef.current.nodes('.clustered').length,
-      centroidNodes: cyRef.current.nodes('.centroid').length,
-      disconnectedNodes: cyRef.current.nodes('.disconnected').length
+    // Use promise to ensure styles are maintained after layout
+    layout.promiseOn('layoutstop').then(() => {
+      console.log('Layout complete, applying final styles');
+
+      // Reapply cluster styles
+      cyRef.current?.nodes().forEach(node => {
+        if (node.data('clusterColor')) {
+          node.addClass('clustered');
+        }
+        if (node.degree() === 0) {
+          node.addClass('disconnected');
+        }
+      });
+
+      // Force style refresh
+      cyRef.current?.style().update();
+
+      // Log final state
+      console.log('Final graph state:', {
+        nodes: cyRef.current?.nodes().length,
+        clusteredNodes: cyRef.current?.nodes('.clustered').length,
+        centroidNodes: cyRef.current?.nodes('.centroid').length,
+        disconnectedNodes: cyRef.current?.nodes('.disconnected').length
+      });
     });
+
+    layout.run();
 
   }, [data]);
 
   return (
     <div className="w-full h-full">
       <CytoscapeComponent
-        elements={[]} 
+        elements={[]}
         stylesheet={styleSheet}
         layout={layoutConfig}
         cy={(cy) => {
