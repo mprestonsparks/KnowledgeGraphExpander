@@ -47,37 +47,28 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
           role: "system",
           content: `You are a knowledge graph reasoning system. When expanding the graph, follow these rules:
 
-1. Every new node MUST have at least one connection to either:
-   - An existing node in the graph
-   - Another new node being added in this iteration
-
-2. First, provide your reasoning about how to expand the graph:
-<|thinking|>
-[Step-by-step reasoning about potential new concepts and relationships]
-</|thinking|>
-
-3. Then, extract a local graph that maintains connectivity. Return the result as JSON:
+1. Return a JSON object with exactly these fields:
 {
-  "reasoning": string, // Your <|thinking|> block
+  "reasoning": "<|thinking|>Your step-by-step reasoning about expansion|</thinking|>",
   "nodes": [{ 
-    "label": string,
+    "label": string (node name),
     "type": "concept",
-    "metadata": { description: string }
+    "metadata": { "description": string }
   }],
   "edges": [{ 
-    "sourceId": number,
-    "targetId": number,
-    "label": string,
-    "weight": number
+    "sourceId": number (existing node ID or new node position + ${existingNodes.length}),
+    "targetId": number (existing node ID or new node position + ${existingNodes.length}),
+    "label": string (relationship type),
+    "weight": number (1 for standard relationships)
   }],
-  "nextQuestion": string // A follow-up question to explore further
+  "nextQuestion": string (follow-up question for further exploration)
 }
 
-IMPORTANT: 
-- Each node must have at least one edge connecting it
-- Edges must form valid connections between nodes
-- Focus on quality over quantity - suggest only a few highly relevant nodes and edges
-- Ensure edges reference either existing node IDs or new nodes being added`
+2. Node and edge rules:
+- Each new node must connect to at least one other node (existing or new)
+- Node IDs for new nodes start at ${existingNodes.length + 1}
+- Edge sourceId/targetId must reference valid nodes
+- Focus on quality over quantity (2-3 well-connected nodes)`
         },
         {
           role: "user",
@@ -108,13 +99,15 @@ Prompt for expansion: ${prompt}`
       throw new Error('Invalid JSON response from OpenAI');
     }
 
+    // Validate required fields
     if (!result.nodes || !Array.isArray(result.nodes) || !result.edges || !Array.isArray(result.edges)) {
-      throw new Error('Invalid response format from OpenAI');
+      throw new Error('Invalid response format from OpenAI: missing nodes or edges arrays');
     }
 
     // Verify nodes have required fields
     result.nodes.forEach((node: any, index: number) => {
-      if (!node.label || !node.type || !node.metadata) {
+      if (!node.label || !node.type || !node.metadata?.description) {
+        console.error('Invalid node:', node);
         throw new Error(`Invalid node at index ${index}: missing required fields`);
       }
     });
@@ -122,6 +115,7 @@ Prompt for expansion: ${prompt}`
     // Verify edges have required fields and valid connections
     result.edges.forEach((edge: any, index: number) => {
       if (!edge.sourceId || !edge.targetId || !edge.label || typeof edge.weight !== 'number') {
+        console.error('Invalid edge:', edge);
         throw new Error(`Invalid edge at index ${index}: missing required fields`);
       }
 
@@ -132,6 +126,13 @@ Prompt for expansion: ${prompt}`
                           result.nodes.some((_: any, i: number) => edge.targetId === existingNodes.length + i + 1);
 
       if (!sourceExists || !targetExists) {
+        console.error('Invalid edge connections:', {
+          edge,
+          sourceExists,
+          targetExists,
+          existingNodes: existingNodes.map(n => n.id),
+          newNodeIds: result.nodes.map((_: any, i: number) => existingNodes.length + i + 1)
+        });
         throw new Error(`Invalid edge at index ${index}: references non-existent node`);
       }
     });
