@@ -37,6 +37,19 @@ export type Edge = typeof edges.$inferSelect;
 export type InsertNode = z.infer<typeof insertNodeSchema>;
 export type InsertEdge = z.infer<typeof insertEdgeSchema>;
 
+// New types for semantic clustering
+export interface ClusterMetadata {
+  centroidNode: string;
+  semanticTheme: string;
+  coherenceScore: number;
+}
+
+export interface ClusterResult {
+  clusterId: number;
+  nodes: string[];
+  metadata: ClusterMetadata;
+}
+
 export type GraphData = {
   nodes: Node[];
   edges: Edge[];

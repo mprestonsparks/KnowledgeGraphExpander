@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import type { Core, ElementDefinition } from "cytoscape";
-import { type GraphData } from "@shared/schema";
+import { type GraphData, type ClusterResult } from "@shared/schema";
 
 interface GraphViewerProps {
-  data: GraphData;
+  data: GraphData & { clusters?: ClusterResult[] };
 }
 
 const layoutConfig = {
@@ -74,12 +74,30 @@ const styleSheet = [
       "z-index": 1
     }
   },
-  // Style for disconnected nodes
   {
     selector: "node.disconnected",
     style: {
       "border-color": "hsl(var(--destructive))",
       "border-width": "3px"
+    }
+  },
+  {
+    selector: "node[cluster]",
+    style: {
+      "background-color": "data(clusterColor)",
+      "border-color": "data(clusterColor)",
+      "border-width": "3px",
+      "border-opacity": 0.5
+    }
+  },
+  {
+    selector: "node[isCentroid]",
+    style: {
+      "border-width": "5px",
+      "border-color": "hsl(var(--primary))",
+      "border-opacity": 1,
+      "width": "60px",
+      "height": "60px"
     }
   }
 ];
@@ -89,13 +107,11 @@ function validateGraphElements(nodes: ElementDefinition[], edges: ElementDefinit
   const connectedNodes = new Set<string>();
   const edgeConnections = new Map<string, Set<string>>();
 
-  // Track nodes with connections and build edge connection map
   edges.forEach(edge => {
     if (edge.data.source && edge.data.target) {
       connectedNodes.add(edge.data.source);
       connectedNodes.add(edge.data.target);
 
-      // Track edges per node
       if (!edgeConnections.has(edge.data.source)) {
         edgeConnections.set(edge.data.source, new Set());
       }
@@ -107,7 +123,6 @@ function validateGraphElements(nodes: ElementDefinition[], edges: ElementDefinit
     }
   });
 
-  // Find disconnected nodes
   const disconnectedNodes = Array.from(nodeIds).filter(id => !connectedNodes.has(id));
 
   console.log('Detailed graph validation:', {
@@ -124,7 +139,6 @@ function validateGraphElements(nodes: ElementDefinition[], edges: ElementDefinit
       }))
   });
 
-  // Verify edge endpoints and log any issues
   edges.forEach(edge => {
     if (!nodeIds.has(edge.data.source) || !nodeIds.has(edge.data.target)) {
       console.error('Invalid edge connection:', {
@@ -147,21 +161,33 @@ export function GraphViewer({ data }: GraphViewerProps) {
     console.log('Updating graph visualization:', {
       nodes: data.nodes.length,
       edges: data.edges.length,
-      metrics: {
-        nodeCount: Object.keys(data.metrics.degree).length,
-        edgeCount: data.edges.length
-      }
+      clusters: data.clusters?.length || 0
     });
 
-    const nodeElements = data.nodes.map(node => ({
-      data: { 
-        id: node.id.toString(),
-        label: node.label,
-        degree: data.metrics.degree[node.id] || 0,
-        betweenness: data.metrics.betweenness[node.id] || 0
-      },
-      group: 'nodes' as const
-    }));
+    const clusterColors = data.clusters?.reduce((acc, cluster) => {
+      const hue = (cluster.clusterId * 137.5) % 360; 
+      acc[cluster.clusterId] = `hsl(${hue}, 70%, 60%)`;
+      return acc;
+    }, {} as Record<number, string>) || {};
+
+    const nodeElements = data.nodes.map(node => {
+      const nodeCluster = data.clusters?.find(c => 
+        c.nodes.includes(node.id.toString())
+      );
+
+      return {
+        data: { 
+          id: node.id.toString(),
+          label: node.label,
+          degree: data.metrics.degree[node.id] || 0,
+          betweenness: data.metrics.betweenness[node.id] || 0,
+          cluster: nodeCluster?.clusterId,
+          clusterColor: nodeCluster ? clusterColors[nodeCluster.clusterId] : undefined,
+          isCentroid: nodeCluster?.metadata.centroidNode === node.id.toString()
+        },
+        group: 'nodes' as const
+      };
+    });
 
     const edgeElements = data.edges.map(edge => ({
       data: {
@@ -176,18 +202,14 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     validateGraphElements(nodeElements, edgeElements);
 
-    // Clear existing elements
     cyRef.current.elements().remove();
 
-    // Add new elements
     const elements = [...nodeElements, ...edgeElements];
     cyRef.current.add(elements);
 
-    // Run layout with a completion callback
     const layout = cyRef.current.layout(layoutConfig);
     layout.run();
 
-    // Mark disconnected nodes and adjust their styling
     cyRef.current.nodes().forEach(node => {
       const degree = node.degree();
       if (degree === 0) {
@@ -201,7 +223,6 @@ export function GraphViewer({ data }: GraphViewerProps) {
       }
     });
 
-    // Fit the graph to the viewport
     cyRef.current.fit();
   }, [data]);
 

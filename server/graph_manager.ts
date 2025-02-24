@@ -3,6 +3,11 @@ import { centrality } from "graphology-metrics";
 import { type Node, type Edge, type GraphData, type InsertEdge, type InsertNode } from "@shared/schema";
 import { storage } from "./storage";
 import { expandGraph } from "./openai_client";
+import { SemanticClusteringService, type ClusterResult } from "./semantic_clustering";
+
+interface GraphDataWithClusters extends GraphData {
+  clusters: ClusterResult[];
+}
 
 export class GraphManager {
   private graph: Graph;
@@ -10,9 +15,11 @@ export class GraphManager {
   private expandPromise: Promise<void> | null = null;
   private currentIteration: number = 0;
   private maxIterations: number = process.env.NODE_ENV === 'test' ? 1 : 1000;
+  private semanticClustering: SemanticClusteringService;
 
   constructor() {
     this.graph = new Graph({ type: "directed", multi: false });
+    this.semanticClustering = new SemanticClusteringService(this.graph);
   }
 
   async initialize() {
@@ -261,7 +268,7 @@ export class GraphManager {
     }
   }
 
-  private calculateMetrics(): GraphData {
+  private calculateMetrics(): GraphDataWithClusters {
     const betweenness = centrality.betweenness(this.graph);
     let eigenvector: Record<string, number> = {};
 
@@ -278,6 +285,8 @@ export class GraphManager {
       const id = parseInt(nodeId);
       degree[id] = this.graph.degree(nodeId);
     });
+
+    const clusters = this.semanticClustering.clusterNodes();
 
     const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
       ...this.graph.getNodeAttributes(nodeId),
@@ -300,7 +309,8 @@ export class GraphManager {
           Object.entries(eigenvector).map(([k, v]) => [parseInt(k), v])
         ),
         degree
-      }
+      },
+      clusters
     };
   }
 
