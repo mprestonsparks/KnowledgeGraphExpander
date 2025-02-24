@@ -10,16 +10,20 @@ interface GraphViewerProps {
 const layoutConfig = {
   name: "cose",
   animate: true,
-  nodeRepulsion: 12000, // Increased to spread nodes more
-  idealEdgeLength: 150, // Increased for better edge visibility
-  nodeOverlap: 20,
+  nodeRepulsion: 15000,
+  idealEdgeLength: 200,
+  nodeOverlap: 30,
   padding: 50,
-  randomize: false,
-  componentSpacing: 200,
-  refresh: 20,
+  randomize: true,
+  componentSpacing: 300,
+  refresh: 30,
   fit: true,
   boundingBox: undefined,
-  gravity: 0.5 // Added to keep components closer
+  gravity: 0.3,
+  numIter: 10000,
+  initialTemp: 1000,
+  coolingFactor: 0.99,
+  minTemp: 1.0
 };
 
 const styleSheet = [
@@ -83,32 +87,52 @@ const styleSheet = [
 function validateGraphElements(nodes: ElementDefinition[], edges: ElementDefinition[]): void {
   const nodeIds = new Set(nodes.map(n => n.data.id));
   const connectedNodes = new Set<string>();
+  const edgeConnections = new Map<string, Set<string>>();
 
-  // Track nodes with connections
+  // Track nodes with connections and build edge connection map
   edges.forEach(edge => {
     if (edge.data.source && edge.data.target) {
       connectedNodes.add(edge.data.source);
       connectedNodes.add(edge.data.target);
+
+      // Track edges per node
+      if (!edgeConnections.has(edge.data.source)) {
+        edgeConnections.set(edge.data.source, new Set());
+      }
+      if (!edgeConnections.has(edge.data.target)) {
+        edgeConnections.set(edge.data.target, new Set());
+      }
+      edgeConnections.get(edge.data.source)!.add(edge.data.target);
+      edgeConnections.get(edge.data.target)!.add(edge.data.source);
     }
   });
 
   // Find disconnected nodes
   const disconnectedNodes = Array.from(nodeIds).filter(id => !connectedNodes.has(id));
 
-  console.log('Graph validation:', {
+  console.log('Detailed graph validation:', {
     totalNodes: nodes.length,
     totalEdges: edges.length,
     disconnectedNodes: disconnectedNodes.length,
-    disconnectedNodeIds: disconnectedNodes
+    disconnectedNodeIds: disconnectedNodes,
+    nodesWithMostConnections: Array.from(edgeConnections.entries())
+      .sort((a, b) => b[1].size - a[1].size)
+      .slice(0, 5)
+      .map(([nodeId, connections]) => ({
+        nodeId,
+        connectionCount: connections.size
+      }))
   });
 
-  // Verify edge endpoints exist
+  // Verify edge endpoints and log any issues
   edges.forEach(edge => {
     if (!nodeIds.has(edge.data.source) || !nodeIds.has(edge.data.target)) {
-      console.error('Invalid edge:', {
-        id: edge.data.id,
+      console.error('Invalid edge connection:', {
+        edgeId: edge.data.id,
         source: edge.data.source,
-        target: edge.data.target
+        target: edge.data.target,
+        sourceExists: nodeIds.has(edge.data.source),
+        targetExists: nodeIds.has(edge.data.target)
       });
     }
   });
@@ -120,9 +144,13 @@ export function GraphViewer({ data }: GraphViewerProps) {
   useEffect(() => {
     if (!cyRef.current) return;
 
-    console.log('Updating graph with:', {
+    console.log('Updating graph visualization:', {
       nodes: data.nodes.length,
-      edges: data.edges.length
+      edges: data.edges.length,
+      metrics: {
+        nodeCount: Object.keys(data.metrics.degree).length,
+        edgeCount: data.edges.length
+      }
     });
 
     const nodeElements = data.nodes.map(node => ({
@@ -148,24 +176,32 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     validateGraphElements(nodeElements, edgeElements);
 
-    const elements = [...nodeElements, ...edgeElements];
-
+    // Clear existing elements
     cyRef.current.elements().remove();
+
+    // Add new elements
+    const elements = [...nodeElements, ...edgeElements];
     cyRef.current.add(elements);
 
-    // Run layout
+    // Run layout with a completion callback
     const layout = cyRef.current.layout(layoutConfig);
     layout.run();
 
-    // Mark disconnected nodes
+    // Mark disconnected nodes and adjust their styling
     cyRef.current.nodes().forEach(node => {
-      if (node.degree() === 0) {
+      const degree = node.degree();
+      if (degree === 0) {
         node.addClass('disconnected');
+        console.warn('Disconnected node:', {
+          id: node.id(),
+          label: node.data('label')
+        });
       } else {
         node.removeClass('disconnected');
       }
     });
 
+    // Fit the graph to the viewport
     cyRef.current.fit();
   }, [data]);
 

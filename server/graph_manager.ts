@@ -31,9 +31,9 @@ export class GraphManager {
       const targetId = edge.targetId.toString();
 
       // Only add edge if both nodes exist and edge doesn't already exist
-      if (this.graph.hasNode(sourceId) && 
-          this.graph.hasNode(targetId) &&
-          !this.graph.hasEdge(sourceId, targetId)) {
+      if (this.graph.hasNode(sourceId) &&
+        this.graph.hasNode(targetId) &&
+        !this.graph.hasEdge(sourceId, targetId)) {
         this.graph.addEdge(sourceId, targetId, { ...edge });
       }
     });
@@ -76,10 +76,13 @@ export class GraphManager {
       try {
         const expansion = await expandGraph(currentPrompt, this.graph);
 
-        // Safely log reasoning if it exists
-        if (expansion.reasoning) {
-          console.log('Reasoning output:', expansion.reasoning);
-        }
+        // Log the full expansion result
+        console.log('Expansion result:', {
+          nodesCount: expansion.nodes?.length || 0,
+          edgesCount: expansion.edges?.length || 0,
+          nodes: expansion.nodes,
+          edges: expansion.edges
+        });
 
         // Process nodes from this iteration
         for (const nodeData of expansion.nodes || []) {
@@ -87,7 +90,11 @@ export class GraphManager {
             const node = await storage.createNode(nodeData);
             if (!this.graph.hasNode(node.id.toString())) {
               this.graph.addNode(node.id.toString(), { ...node });
-              console.log('Added new node:', node.label);
+              console.log('Added new node:', {
+                id: node.id,
+                label: node.label,
+                graphSize: this.graph.order
+              });
             }
           } catch (error) {
             console.error('Failed to create node:', error);
@@ -108,14 +115,26 @@ export class GraphManager {
                 edge.targetId.toString(),
                 { ...edge }
               );
-              console.log('Added new edge:', `${edge.sourceId}-${edge.targetId}: ${edge.label}`);
+              console.log('Added new edge:', {
+                id: edge.id,
+                source: edge.sourceId,
+                target: edge.targetId,
+                label: edge.label,
+                graphEdges: this.graph.size
+              });
             }
           } catch (error) {
             console.error('Failed to create edge:', error);
           }
         }
 
-        // Update prompt for next iteration if available
+        // Verify graph state after updates
+        console.log('Graph state after iteration:', {
+          nodes: this.graph.order,
+          edges: this.graph.size,
+          disconnectedNodes: this.countDisconnectedNodes()
+        });
+
         if (expansion.nextQuestion) {
           currentPrompt = expansion.nextQuestion;
           console.log('Next iteration prompt:', currentPrompt);
@@ -125,8 +144,6 @@ export class GraphManager {
         }
 
         this.currentIteration++;
-
-        // Allow some time between iterations
         await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (error) {
         console.error('Error during iteration:', error);
@@ -137,13 +154,29 @@ export class GraphManager {
 
   private validateEdgeData(edgeData: any): boolean {
     if (typeof edgeData.sourceId !== 'number' || typeof edgeData.targetId !== 'number') {
-      console.warn('Invalid edge data, skipping:', edgeData);
+      console.warn('Invalid edge data types:', {
+        sourceId: typeof edgeData.sourceId,
+        targetId: typeof edgeData.targetId,
+        data: edgeData
+      });
       return false;
     }
 
-    if (!this.graph.hasNode(edgeData.sourceId.toString()) ||
-        !this.graph.hasNode(edgeData.targetId.toString())) {
-      console.warn('Edge references non-existent nodes, skipping:', edgeData);
+    const sourceNode = this.graph.hasNode(edgeData.sourceId.toString());
+    const targetNode = this.graph.hasNode(edgeData.targetId.toString());
+
+    if (!sourceNode || !targetNode) {
+      console.warn('Edge references missing nodes:', {
+        edge: edgeData,
+        sourceExists: sourceNode,
+        targetExists: targetNode
+      });
+      return false;
+    }
+
+    // Check if edge already exists
+    if (this.graph.hasEdge(edgeData.sourceId.toString(), edgeData.targetId.toString())) {
+      console.warn('Edge already exists:', edgeData);
       return false;
     }
 
@@ -191,6 +224,15 @@ export class GraphManager {
         degree
       }
     };
+  }
+  private countDisconnectedNodes(): number {
+    let count = 0;
+    this.graph.forEachNode((nodeId: string) => {
+      if (this.graph.degree(nodeId) === 0) {
+        count++;
+      }
+    });
+    return count;
   }
 }
 
