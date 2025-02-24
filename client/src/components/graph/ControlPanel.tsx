@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
-import { expandGraph } from "@/lib/graph";
+import { expandGraph, reconnectNodes } from "@/lib/graph";
 import { queryClient } from "@/lib/queryClient";
 
 export function ControlPanel() {
@@ -18,12 +18,19 @@ export function ControlPanel() {
     }
   });
 
+  const reconnectMutation = useMutation({
+    mutationFn: reconnectNodes,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/graph"] });
+    }
+  });
+
   return (
     <Card className="w-full">
       <CardHeader>
         <h2 className="text-xl font-semibold">Graph Control</h2>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <div className="flex gap-2">
           <Input
             value={prompt}
@@ -40,6 +47,19 @@ export function ControlPanel() {
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               "Expand"
+            )}
+          </Button>
+        </div>
+        <div className="flex justify-end">
+          <Button
+            variant="secondary"
+            onClick={() => reconnectMutation.mutate()}
+            disabled={reconnectMutation.isPending}
+          >
+            {reconnectMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              "Reconnect Disconnected Nodes"
             )}
           </Button>
         </div>

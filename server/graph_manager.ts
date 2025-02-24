@@ -66,7 +66,7 @@ export class GraphManager {
     }
   }
 
-  private validateExpansionData(nodes: InsertNode[], edges: InsertEdge[]): { 
+  private validateExpansionData(nodes: InsertNode[], edges: InsertEdge[]): {
     isValid: boolean;
     connectedNodes: Set<string>;
     validNodes: InsertNode[];
@@ -312,6 +312,88 @@ export class GraphManager {
       }
     });
     return count;
+  }
+
+  async reconnectDisconnectedNodes(): Promise<GraphData> {
+    console.log('Starting reconnection of disconnected nodes');
+    const disconnectedNodeIds = new Set<string>();
+
+    // Identify disconnected nodes
+    this.graph.forEachNode((nodeId: string) => {
+      if (this.graph.degree(nodeId) === 0) {
+        disconnectedNodeIds.add(nodeId);
+        console.log('Found disconnected node:', {
+          id: nodeId,
+          label: this.graph.getNodeAttributes(nodeId).label
+        });
+      }
+    });
+
+    if (disconnectedNodeIds.size === 0) {
+      console.log('No disconnected nodes found');
+      return this.calculateMetrics();
+    }
+
+    console.log(`Found ${disconnectedNodeIds.size} disconnected nodes`);
+
+    // Group nodes by type for more meaningful connections
+    const nodesByType = new Map<string, string[]>();
+    disconnectedNodeIds.forEach(nodeId => {
+      const node = this.graph.getNodeAttributes(nodeId);
+      if (!nodesByType.has(node.type)) {
+        nodesByType.set(node.type, []);
+      }
+      nodesByType.get(node.type)!.push(nodeId);
+    });
+
+    // Connect nodes of similar types
+    for (const [type, nodes] of nodesByType.entries()) {
+      console.log(`Processing nodes of type: ${type}`);
+
+      for (const nodeId of nodes) {
+        try {
+          // Find a suitable connected node to link to
+          let targetNodeId: string | null = null;
+          this.graph.forEachNode((potentialTarget: string) => {
+            if (
+              !disconnectedNodeIds.has(potentialTarget) &&
+              this.graph.getNodeAttributes(potentialTarget).type === type &&
+              !targetNodeId
+            ) {
+              targetNodeId = potentialTarget;
+            }
+          });
+
+          if (targetNodeId) {
+            const sourceNode = this.graph.getNodeAttributes(nodeId);
+            const targetNode = this.graph.getNodeAttributes(targetNodeId);
+
+            // Create edge in database
+            const edge = await storage.createEdge({
+              sourceId: parseInt(nodeId),
+              targetId: parseInt(targetNodeId),
+              label: "related_to",
+              weight: 1
+            });
+
+            // Add edge to graph
+            this.graph.addEdge(nodeId, targetNodeId, { ...edge });
+
+            console.log('Connected nodes:', {
+              source: { id: nodeId, label: sourceNode.label },
+              target: { id: targetNodeId, label: targetNode.label }
+            });
+          }
+        } catch (error) {
+          console.error('Failed to connect node:', {
+            nodeId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+    }
+
+    return this.calculateMetrics();
   }
 }
 

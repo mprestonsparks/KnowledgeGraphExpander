@@ -97,5 +97,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Add new reconnect endpoint
+  app.post('/api/graph/reconnect', async (_req, res) => {
+    try {
+      console.log('Starting node reconnection process');
+      const updatedGraph = await graphManager.reconnectDisconnectedNodes();
+      console.log('Broadcasting reconnected graph update');
+      broadcastUpdate(updatedGraph);
+      res.json(updatedGraph);
+    } catch (error) {
+      console.error('Failed to reconnect nodes:', error);
+      res.status(500).json({ error: "Failed to reconnect nodes" });
+    }
+  });
+
   return httpServer;
 }
