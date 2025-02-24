@@ -21,6 +21,7 @@ export function ControlPanel() {
   const reconnectMutation = useMutation({
     mutationFn: reconnectNodes,
     onSuccess: () => {
+      console.log('Reconnection mutation completed, invalidating queries');
       queryClient.invalidateQueries({ queryKey: ["/api/graph"] });
     }
   });
@@ -28,6 +29,7 @@ export function ControlPanel() {
   const clusterMutation = useMutation({
     mutationFn: reapplyClustering,
     onSuccess: () => {
+      console.log('Clustering mutation completed, invalidating queries');
       queryClient.invalidateQueries({ queryKey: ["/api/graph"] });
     }
   });
@@ -71,7 +73,10 @@ export function ControlPanel() {
           </Button>
           <Button
             variant="secondary"
-            onClick={() => reconnectMutation.mutate()}
+            onClick={() => {
+              console.log('Reconnect button clicked');
+              reconnectMutation.mutate();
+            }}
             disabled={reconnectMutation.isPending}
           >
             {reconnectMutation.isPending ? (
