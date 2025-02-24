@@ -10,3 +10,8 @@ export async function reconnectNodes(): Promise<GraphData> {
   const response = await apiRequest("POST", "/api/graph/reconnect");
   return response.json();
 }
+
+export async function reapplyClustering(): Promise<GraphData> {
+  const response = await apiRequest("POST", "/api/graph/cluster");
+  return response.json();
+}

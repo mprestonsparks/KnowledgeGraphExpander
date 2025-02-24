@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
-import { expandGraph, reconnectNodes } from "@/lib/graph";
+import { expandGraph, reconnectNodes, reapplyClustering } from "@/lib/graph";
 import { queryClient } from "@/lib/queryClient";
 
 export function ControlPanel() {
@@ -20,6 +20,13 @@ export function ControlPanel() {
 
   const reconnectMutation = useMutation({
     mutationFn: reconnectNodes,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/graph"] });
+    }
+  });
+
+  const clusterMutation = useMutation({
+    mutationFn: reapplyClustering,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/graph"] });
     }
@@ -50,7 +57,18 @@ export function ControlPanel() {
             )}
           </Button>
         </div>
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => clusterMutation.mutate()}
+            disabled={clusterMutation.isPending}
+          >
+            {clusterMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              "Reapply Clustering"
+            )}
+          </Button>
           <Button
             variant="secondary"
             onClick={() => reconnectMutation.mutate()}

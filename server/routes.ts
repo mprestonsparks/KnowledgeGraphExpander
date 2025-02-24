@@ -97,7 +97,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Add new reconnect endpoint
+  // Add new cluster endpoint
+  app.post('/api/graph/cluster', async (_req, res) => {
+    try {
+      const graphData = await graphManager.calculateMetrics();
+      broadcastUpdate(graphData);
+      res.json(graphData);
+    } catch (error) {
+      console.error('Failed to apply clustering:', error);
+      res.status(500).json({ error: "Failed to apply clustering" });
+    }
+  });
+
   app.post('/api/graph/reconnect', async (_req, res) => {
     try {
       console.log('Starting node reconnection process');
