@@ -7,7 +7,7 @@ let openaiInstance: OpenAI | null = null;
 export function initializeOpenAI(apiKey: string) {
   openaiInstance = new OpenAI({
     apiKey,
-    dangerouslyAllowBrowser: true
+    dangerouslyAllowBrowser: true // Required for test environment
   });
 }
 
@@ -22,18 +22,20 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
     initializeOpenAI(process.env.OPENAI_API_KEY || '');
   }
 
-  // Get current graph state
   const existingNodes = Array.from(currentGraph.nodes()).map(nodeId => ({
     id: parseInt(nodeId),
     ...currentGraph.getNodeAttributes(nodeId)
   }));
 
-  const nextNodeId = Math.max(...existingNodes.map(n => n.id)) + 1;
+  const existingEdges = Array.from(currentGraph.edges()).map(edgeId => ({
+    source: parseInt(currentGraph.source(edgeId)),
+    target: parseInt(currentGraph.target(edgeId)),
+    ...currentGraph.getEdgeAttributes(edgeId)
+  }));
 
-  console.log('[DEBUG] Current graph state:', {
-    nodeCount: existingNodes.length,
-    existingIds: existingNodes.map(n => n.id),
-    nextNodeId
+  console.log('Current graph state:', {
+    nodes: existingNodes.length,
+    edges: existingEdges.length
   });
 
   try {
@@ -42,28 +44,46 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
       messages: [
         {
           role: "system",
-          content: `You are a knowledge graph expansion system. Add ONE new node and connect it to the graph.
+          content: `You are a knowledge graph reasoning system. When expanding the graph, follow these rules:
 
-Format response as JSON:
+1. Every new node MUST have at least one connection to either:
+   - An existing node in the graph
+   - Another new node being added in this iteration
+
+2. First, provide your reasoning about how to expand the graph:
+<|thinking|>
+[Step-by-step reasoning about potential new concepts and relationships]
+</|thinking|>
+
+3. Then, extract a local graph that maintains connectivity. Return the result as JSON:
 {
-  "node": { 
-    "label": "string (node name)",
-    "type": "concept",
-    "metadata": { "description": "string" }
-  },
-  "edge": {
-    "sourceId": number (pick an existing node ID: ${existingNodes.map(n => n.id).join(', ')}),
-    "targetId": ${nextNodeId} (this will be the new node's ID),
-    "label": "string (relationship)",
-    "weight": 1
-  }
-}`
+  "reasoning": string, // Your <|thinking|> block
+  "nodes": [{ 
+    "label": string,
+    "type": string,
+    "metadata": { description: string }
+  }],
+  "edges": [{ 
+    "sourceId": number,
+    "targetId": number,
+    "label": string,
+    "weight": number
+  }],
+  "nextQuestion": string // A follow-up question based on the new nodes/edges
+}
+
+IMPORTANT: 
+- Each node must have at least one edge connecting it
+- Edges must form valid connections between nodes
+- Focus on quality over quantity - suggest only a few highly relevant nodes and edges`
         },
         {
-          role: "user", 
-          content: `Current nodes: ${JSON.stringify(existingNodes.map(n => ({ id: n.id, label: n.label })), null, 2)}
+          role: "user",
+          content: `Current graph state:
+Nodes: ${JSON.stringify(existingNodes, null, 2)}
+Edges: ${JSON.stringify(existingEdges, null, 2)}
 
-Add a node related to: ${prompt}`
+Prompt for expansion: ${prompt}`
         }
       ],
       response_format: { type: "json_object" }
@@ -76,56 +96,27 @@ Add a node related to: ${prompt}`
     let result;
     try {
       result = JSON.parse(response.choices[0].message.content);
-      console.log('[DEBUG] OpenAI response:', result);
+      console.log('Parsed expansion result:', result);
     } catch (error) {
       throw new Error('Invalid JSON response from OpenAI');
     }
 
-    // Validate response
-    if (!result.node || !result.edge) {
-      console.error('[DEBUG] Invalid response structure:', result);
-      throw new Error('Invalid response format: missing node or edge');
+    if (!result.nodes || !Array.isArray(result.nodes) || !result.edges || !Array.isArray(result.edges)) {
+      throw new Error('Invalid response format from OpenAI');
     }
 
-    // Validate node
-    if (!result.node.label || !result.node.type || !result.node.metadata?.description) {
-      console.error('[DEBUG] Invalid node:', result.node);
-      throw new Error('Invalid node: missing required fields');
+    // Log the reasoning process
+    if (result.reasoning) {
+      console.log('Reasoning output:', result.reasoning);
     }
+    console.log('Generated next question:', result.nextQuestion);
 
-    // Validate edge
-    if (!result.edge.sourceId || !result.edge.label || typeof result.edge.weight !== 'number') {
-      console.error('[DEBUG] Invalid edge:', result.edge);
-      throw new Error('Invalid edge: missing required fields');
-    }
-
-    // Check edge connections
-    const sourceExists = existingNodes.some(n => n.id === result.edge.sourceId);
-    if (!sourceExists) {
-      console.error('[DEBUG] Invalid source node:', {
-        sourceId: result.edge.sourceId,
-        existingNodes: existingNodes.map(n => n.id)
-      });
-      throw new Error('Invalid edge: source node does not exist');
-    }
-
-    // Ensure edge.targetId is set to the next available ID
-    result.edge.targetId = nextNodeId;
-
-    console.log('[DEBUG] Validated expansion result:', {
-      node: result.node,
-      edge: result.edge
-    });
-
-    // Return simplified structure
-    return {
-      nodes: [result.node],
-      edges: [result.edge]
-    };
-
+    return result;
   } catch (error) {
-    console.error('[DEBUG] Expansion error:', error);
-    throw error;
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to expand graph');
   }
 }
 

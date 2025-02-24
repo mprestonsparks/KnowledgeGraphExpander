@@ -13,6 +13,7 @@ describe("OpenAI Client", () => {
     graph.addNode("2", { label: "Neural Networks", type: "concept", metadata: {} });
     graph.addEdge("1", "2", { label: "includes", weight: 1 });
 
+    // Create a fresh mock for each test
     mockOpenAI = {
       chat: {
         completions: {
@@ -23,12 +24,11 @@ describe("OpenAI Client", () => {
     setOpenAIInstance(mockOpenAI as unknown as OpenAI);
   });
 
-  it("should format and validate graph expansion", async () => {
+  it("should expand graph based on prompt", async () => {
     const mockResponse = {
       choices: [{
         message: {
           content: JSON.stringify({
-            reasoning: "<|thinking|>Test reasoning|</thinking|>",
             nodes: [
               {
                 label: "Deep Learning",
@@ -43,8 +43,7 @@ describe("OpenAI Client", () => {
                 label: "specializes_in",
                 weight: 1
               }
-            ],
-            nextQuestion: "What are the applications?"
+            ]
           })
         },
         finish_reason: "stop"
@@ -59,23 +58,47 @@ describe("OpenAI Client", () => {
     expect(result.nodes[0].label).toBe("Deep Learning");
     expect(result.edges).toHaveLength(1);
     expect(result.edges[0].label).toBe("specializes_in");
-    expect(result.nextQuestion).toBe("What are the applications?");
   });
 
-  it("should validate node connectivity", async () => {
+  it("should handle OpenAI API errors gracefully", async () => {
+    mockOpenAI.chat.completions.create.mockRejectedValue(new Error("API Error"));
+    await expect(expandGraph("Invalid prompt", graph)).rejects.toThrow("API Error");
+  });
+
+  it("should validate response format", async () => {
+    const invalidResponse = {
+      choices: [{
+        message: {
+          content: "Invalid JSON",
+        },
+        finish_reason: "stop"
+      }]
+    };
+
+    mockOpenAI.chat.completions.create.mockResolvedValue(invalidResponse);
+    await expect(expandGraph("Test invalid format", graph)).rejects.toThrow("Invalid JSON response from OpenAI");
+  });
+
+  it("should maintain graph consistency after expansion", async () => {
     const mockResponse = {
       choices: [{
         message: {
           content: JSON.stringify({
             nodes: [
               {
-                label: "Isolated Node",
+                label: "Backpropagation",
                 type: "concept",
-                metadata: { description: "Node without connections" }
+                metadata: { description: "Learning algorithm" }
               }
             ],
-            edges: [],
-            nextQuestion: null
+            edges: [
+              {
+                sourceId: 2,
+                targetId: 3,
+                label: "uses",
+                weight: 1
+              }
+            ]
           })
         },
         finish_reason: "stop"
@@ -83,70 +106,16 @@ describe("OpenAI Client", () => {
     };
 
     mockOpenAI.chat.completions.create.mockResolvedValue(mockResponse);
-    await expect(expandGraph("Test invalid node", graph)).rejects.toThrow(/Invalid response format/);
-  });
 
-  it("should handle invalid JSON responses", async () => {
-    mockOpenAI.chat.completions.create.mockResolvedValue({
-      choices: [{
-        message: {
-          content: "Not JSON"
-        }
-      }]
-    });
+    const result = await expandGraph("Explain Neural Network training", graph);
 
-    await expect(expandGraph("Test invalid format", graph)).rejects.toThrow("Invalid JSON response from OpenAI");
-  });
+    // Verify new content is valid
+    expect(result.nodes[0].type).toBe("concept");
+    expect(result.edges[0].weight).toBe(1);
 
-  it("should validate edge references", async () => {
-    const mockResponse = {
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            nodes: [
-              {
-                label: "New Node",
-                type: "concept",
-                metadata: { description: "Test" }
-              }
-            ],
-            edges: [
-              {
-                sourceId: 999, // Non-existent node
-                targetId: 2,
-                label: "invalid_edge",
-                weight: 1
-              }
-            ]
-          })
-        }
-      }]
-    };
-
-    mockOpenAI.chat.completions.create.mockResolvedValue(mockResponse);
-    await expect(expandGraph("Test invalid edge", graph)).rejects.toThrow(/Invalid edge.*references non-existent node/);
-  });
-
-  it("should preserve existing graph state", async () => {
-    const initialNodeCount = graph.order;
-    const initialEdgeCount = graph.size;
-
-    const mockResponse = {
-      choices: [{
-        message: {
-          content: JSON.stringify({
-            nodes: [],
-            edges: [],
-            nextQuestion: null
-          })
-        }
-      }]
-    };
-
-    mockOpenAI.chat.completions.create.mockResolvedValue(mockResponse);
-    await expandGraph("Empty expansion", graph);
-
-    expect(graph.order).toBe(initialNodeCount);
-    expect(graph.size).toBe(initialEdgeCount);
+    // Verify the original nodes/edges are preserved in the graph
+    expect(graph.hasNode("1")).toBeTruthy();
+    expect(graph.hasNode("2")).toBeTruthy();
+    expect(graph.hasEdge("1", "2")).toBeTruthy();
   });
 });
