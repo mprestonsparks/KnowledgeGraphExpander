@@ -9,7 +9,7 @@ interface GraphViewerProps {
 
 const layoutConfig = {
   name: "cose",
-  animate: true,
+  animate: false, // Disable animation to prevent style resets
   nodeRepulsion: 15000,
   idealEdgeLength: 200,
   nodeOverlap: 30,
@@ -26,25 +26,25 @@ const layoutConfig = {
   minTemp: 1.0
 };
 
+const baseNodeStyle = {
+  "background-color": "hsl(var(--primary))",
+  "label": "data(label)",
+  "color": "hsl(var(--foreground))",
+  "text-valign": "center",
+  "text-halign": "center",
+  "font-size": "14px",
+  "text-wrap": "wrap",
+  "text-max-width": "120px",
+  "width": "45px",
+  "height": "45px",
+  "border-width": "2px",
+  "border-color": "hsl(var(--border))"
+};
+
 const styleSheet = [
   {
     selector: "node",
-    style: {
-      "background-color": "hsl(var(--primary))",
-      "label": "data(label)",
-      "color": "hsl(var(--foreground))",
-      "text-valign": "center",
-      "text-halign": "center",
-      "font-size": "14px",
-      "text-wrap": "wrap",
-      "text-max-width": "120px",
-      "width": "45px",
-      "height": "45px",
-      "border-width": "2px",
-      "border-color": "hsl(var(--border))",
-      "transition-property": "background-color, border-color, width, height",
-      "transition-duration": "0.2s"
-    }
+    style: baseNodeStyle
   },
   {
     selector: "node[degree >= 3]",
@@ -125,7 +125,6 @@ export function GraphViewer({ data }: GraphViewerProps) {
   useEffect(() => {
     if (!cyRef.current) return;
 
-    // Store a reference to cytoscape instance
     const cy = cyRef.current;
 
     console.log('Starting graph update with data:', {
@@ -134,28 +133,22 @@ export function GraphViewer({ data }: GraphViewerProps) {
       clusters: data.clusters?.length || 0
     });
 
-    // Calculate cluster colors with guaranteed unique hues
+    // Generate cluster colors
     const clusterColors = data.clusters?.reduce((acc, cluster) => {
-      const hue = (cluster.clusterId * 137.5) % 360; // Golden ratio for better distribution
+      const hue = (cluster.clusterId * 137.5) % 360;
       const saturation = 70 + (cluster.clusterId * 5) % 20;
       const lightness = 45 + (cluster.clusterId * 7) % 20;
       acc[cluster.clusterId] = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
       return acc;
     }, {} as Record<number, string>) || {};
 
-    // Debug cluster assignments
-    if (data.clusters?.length) {
-      console.log('Cluster color assignments:', data.clusters.map(c => ({
-        id: c.clusterId,
-        color: clusterColors[c.clusterId],
-        nodeCount: c.nodes.length,
-        centroid: c.metadata.centroidNode
-      })));
-    }
-
-    // Prepare nodes with enforced cluster data
+    // Create elements with cluster data
     const nodeElements = data.nodes.map(node => {
-      const element = {
+      const nodeCluster = data.clusters?.find(c =>
+        c.nodes.includes(node.id.toString())
+      );
+
+      const element: ElementDefinition = {
         data: {
           id: node.id.toString(),
           label: node.label,
@@ -163,12 +156,8 @@ export function GraphViewer({ data }: GraphViewerProps) {
           betweenness: data.metrics.betweenness[node.id] || 0,
         },
         classes: [] as string[],
-        group: 'nodes' as const
+        group: 'nodes'
       };
-
-      const nodeCluster = data.clusters?.find(c =>
-        c.nodes.includes(node.id.toString())
-      );
 
       if (nodeCluster) {
         element.data.clusterColor = clusterColors[nodeCluster.clusterId];
@@ -177,20 +166,11 @@ export function GraphViewer({ data }: GraphViewerProps) {
         if (nodeCluster.metadata.centroidNode === node.id.toString()) {
           element.classes.push('centroid');
         }
-
-        // Debug node cluster assignment
-        console.log('Node cluster assignment:', {
-          nodeId: node.id,
-          clusterId: nodeCluster.clusterId,
-          color: element.data.clusterColor,
-          isCentroid: nodeCluster.metadata.centroidNode === node.id.toString()
-        });
       }
 
       return element;
     });
 
-    // Prepare edges
     const edgeElements = data.edges.map(edge => ({
       data: {
         id: `e${edge.id}`,
@@ -202,18 +182,17 @@ export function GraphViewer({ data }: GraphViewerProps) {
       group: 'edges' as const
     }));
 
-    // Remove existing elements
+    // Clear and add new elements
     cy.elements().remove();
-
-    // Add new elements and apply initial styles
     cy.add([...nodeElements, ...edgeElements]);
-    cy.style(styleSheet);
 
-    // Function to verify and enforce styles
+    // Function to enforce styles
     const enforceStyles = () => {
+      cy.style(styleSheet);
+
       cy.nodes().forEach(node => {
-        const clusterColor = node.data('clusterColor');
-        if (clusterColor && !node.hasClass('clustered')) {
+        // Re-add classes to ensure style application
+        if (node.data('clusterColor')) {
           node.addClass('clustered');
         }
         if (node.degree() === 0) {
@@ -221,40 +200,26 @@ export function GraphViewer({ data }: GraphViewerProps) {
         }
       });
 
-      // Force style update
+      // Force style refresh
       cy.style().update();
-
-      // Verify style application
-      console.log('Style verification:', {
-        totalNodes: cy.nodes().length,
-        clusteredNodes: cy.nodes('.clustered').length,
-        stylesApplied: cy.nodes('.clustered').map(n => ({
-          id: n.id(),
-          color: n.data('clusterColor'),
-          hasClass: n.hasClass('clustered')
-        }))
-      });
     };
 
-    // Configure layout with proper style handling
+    // Apply initial styles
+    enforceStyles();
+
+    // Create and run layout
     const layout = cy.layout({
       ...layoutConfig,
-      animate: true,
-      fit: true,
-      stop: function() {
-        console.log('Layout complete, enforcing final styles');
+      stop: () => {
+        // Ensure styles persist after layout
         enforceStyles();
         cy.fit();
       }
     });
 
-    // Initial style enforcement
-    enforceStyles();
-
-    // Run layout
     layout.run();
 
-    // Add cleanup
+    // Clean up
     return () => {
       layout.stop();
     };
