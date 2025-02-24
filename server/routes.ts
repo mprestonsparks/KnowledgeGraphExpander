@@ -20,13 +20,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.log('Broadcasting graph update:', {
       nodes: data.nodes.length,
       edges: data.edges.length,
+      clusters: data.clusters?.length || 0,
       connectedClients: wss.clients.size
     });
 
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(data));
-        console.log('Sent update to client');
       }
     });
   }
@@ -42,8 +42,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // API Routes
   app.get('/api/graph', async (_req, res) => {
-    const graph = await storage.getFullGraph();
-    res.json(graph);
+    try {
+      const graph = await storage.getFullGraph();
+      const graphData = await graphManager.recalculateClusters();
+
+      console.log('GET /api/graph response:', {
+        nodes: graphData.nodes.length,
+        edges: graphData.edges.length,
+        clusters: graphData.clusters?.length || 0,
+        clusterDetails: graphData.clusters?.map(c => ({
+          id: c.clusterId,
+          nodes: c.nodes.length,
+          theme: c.metadata.semanticTheme
+        }))
+      });
+
+      res.json(graphData);
+    } catch (error) {
+      console.error('Error retrieving graph:', error);
+      res.status(500).json({ error: "Failed to retrieve graph data" });
+    }
   });
 
   app.post('/api/graph/expand', async (req, res) => {
@@ -103,7 +121,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Starting cluster recalculation');
       // Force recalculation of clusters through graph manager
       const graphData = await graphManager.recalculateClusters();
-      console.log('Clusters recalculated, broadcasting update');
+      console.log('Clusters recalculated:', {
+        totalClusters: graphData.clusters.length,
+        clusterSizes: graphData.clusters.map(c => ({
+          id: c.clusterId,
+          nodes: c.nodes.length
+        }))
+      });
       broadcastUpdate(graphData);
       res.json(graphData);
     } catch (error) {
