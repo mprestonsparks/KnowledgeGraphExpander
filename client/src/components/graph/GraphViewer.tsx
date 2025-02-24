@@ -82,22 +82,20 @@ const styleSheet = [
     }
   },
   {
-    selector: "node[cluster]",
+    selector: "node[?clusterColor]",
     style: {
       "background-color": "data(clusterColor)",
       "border-color": "data(clusterColor)",
-      "border-width": "3px",
-      "border-opacity": 0.5
+      "border-width": "3px"
     }
   },
   {
-    selector: "node[isCentroid]",
+    selector: "node[?isCentroid]",
     style: {
       "border-width": "5px",
       "border-color": "hsl(var(--primary))",
-      "border-opacity": 1,
-      "width": "60px",
-      "height": "60px"
+      "width": "70px",
+      "height": "70px"
     }
   }
 ];
@@ -125,30 +123,10 @@ function validateGraphElements(nodes: ElementDefinition[], edges: ElementDefinit
 
   const disconnectedNodes = Array.from(nodeIds).filter(id => !connectedNodes.has(id));
 
-  console.log('Detailed graph validation:', {
+  console.log('Graph validation results:', {
     totalNodes: nodes.length,
     totalEdges: edges.length,
-    disconnectedNodes: disconnectedNodes.length,
-    disconnectedNodeIds: disconnectedNodes,
-    nodesWithMostConnections: Array.from(edgeConnections.entries())
-      .sort((a, b) => b[1].size - a[1].size)
-      .slice(0, 5)
-      .map(([nodeId, connections]) => ({
-        nodeId,
-        connectionCount: connections.size
-      }))
-  });
-
-  edges.forEach(edge => {
-    if (!nodeIds.has(edge.data.source) || !nodeIds.has(edge.data.target)) {
-      console.error('Invalid edge connection:', {
-        edgeId: edge.data.id,
-        source: edge.data.source,
-        target: edge.data.target,
-        sourceExists: nodeIds.has(edge.data.source),
-        targetExists: nodeIds.has(edge.data.target)
-      });
-    }
+    disconnectedCount: disconnectedNodes.length
   });
 }
 
@@ -158,33 +136,60 @@ export function GraphViewer({ data }: GraphViewerProps) {
   useEffect(() => {
     if (!cyRef.current) return;
 
-    console.log('Updating graph visualization:', {
+    console.log('Updating graph with clusters:', {
       nodes: data.nodes.length,
       edges: data.edges.length,
       clusters: data.clusters?.length || 0
     });
 
     const clusterColors = data.clusters?.reduce((acc, cluster) => {
-      const hue = (cluster.clusterId * 137.5) % 360; 
-      acc[cluster.clusterId] = `hsl(${hue}, 70%, 60%)`;
+      // Use a wider color spectrum for better distinction
+      const hue = (cluster.clusterId * 137.5) % 360;
+      const saturation = 70 + (cluster.clusterId * 5) % 20; // Vary saturation
+      const lightness = 45 + (cluster.clusterId * 7) % 20; // Vary lightness
+      acc[cluster.clusterId] = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
       return acc;
     }, {} as Record<number, string>) || {};
+
+    // Log cluster color assignments
+    if (data.clusters) {
+      console.log('Cluster colors:', Object.entries(clusterColors).map(([id, color]) => ({
+        clusterId: id,
+        color,
+        nodeCount: data.clusters?.find(c => c.clusterId === parseInt(id))?.nodes.length
+      })));
+    }
 
     const nodeElements = data.nodes.map(node => {
       const nodeCluster = data.clusters?.find(c => 
         c.nodes.includes(node.id.toString())
       );
 
+      const nodeData = {
+        id: node.id.toString(),
+        label: node.label,
+        degree: data.metrics.degree[node.id] || 0,
+        betweenness: data.metrics.betweenness[node.id] || 0
+      };
+
+      if (nodeCluster) {
+        Object.assign(nodeData, {
+          cluster: nodeCluster.clusterId,
+          clusterColor: clusterColors[nodeCluster.clusterId],
+          isCentroid: nodeCluster.metadata.centroidNode === node.id.toString()
+        });
+      }
+
+      // Log node styling data
+      console.log('Node styling:', {
+        id: node.id,
+        cluster: nodeCluster?.clusterId,
+        color: nodeCluster ? clusterColors[nodeCluster.clusterId] : 'default',
+        isCentroid: nodeCluster?.metadata.centroidNode === node.id.toString()
+      });
+
       return {
-        data: { 
-          id: node.id.toString(),
-          label: node.label,
-          degree: data.metrics.degree[node.id] || 0,
-          betweenness: data.metrics.betweenness[node.id] || 0,
-          cluster: nodeCluster?.clusterId,
-          clusterColor: nodeCluster ? clusterColors[nodeCluster.clusterId] : undefined,
-          isCentroid: nodeCluster?.metadata.centroidNode === node.id.toString()
-        },
+        data: nodeData,
         group: 'nodes' as const
       };
     });
@@ -203,7 +208,6 @@ export function GraphViewer({ data }: GraphViewerProps) {
     validateGraphElements(nodeElements, edgeElements);
 
     cyRef.current.elements().remove();
-
     const elements = [...nodeElements, ...edgeElements];
     cyRef.current.add(elements);
 
@@ -211,13 +215,8 @@ export function GraphViewer({ data }: GraphViewerProps) {
     layout.run();
 
     cyRef.current.nodes().forEach(node => {
-      const degree = node.degree();
-      if (degree === 0) {
+      if (node.degree() === 0) {
         node.addClass('disconnected');
-        console.warn('Disconnected node:', {
-          id: node.id(),
-          label: node.data('label')
-        });
       } else {
         node.removeClass('disconnected');
       }
