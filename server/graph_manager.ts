@@ -74,11 +74,18 @@ export class GraphManager {
   } {
     const nodeLabels = new Map<number, string>();
     const connectedNodes = new Set<string>();
+    const edgeConnections = new Map<string, Set<string>>();
     const validNodes: InsertNode[] = [];
     const validEdges: InsertEdge[] = [];
 
-    // First pass: collect all proposed nodes
-    nodes.forEach(node => nodeLabels.set(node.id, node.label));
+    // First pass: collect all proposed nodes and existing nodes
+    nodes.forEach(node => {
+      nodeLabels.set(node.id, node.label);
+      console.log('Processing node:', {
+        id: node.id,
+        label: node.label
+      });
+    });
 
     // Second pass: validate edges and track connected nodes
     edges.forEach(edge => {
@@ -91,23 +98,54 @@ export class GraphManager {
         validEdges.push(edge);
         connectedNodes.add(sourceId);
         connectedNodes.add(targetId);
+
+        // Track edge connections for both nodes
+        if (!edgeConnections.has(sourceId)) {
+          edgeConnections.set(sourceId, new Set());
+        }
+        if (!edgeConnections.has(targetId)) {
+          edgeConnections.set(targetId, new Set());
+        }
+        edgeConnections.get(sourceId)!.add(targetId);
+        edgeConnections.get(targetId)!.add(sourceId);
+
+        console.log('Valid edge found:', {
+          source: edge.sourceId,
+          sourceLabel: nodeLabels.get(edge.sourceId) || 'existing node',
+          target: edge.targetId,
+          targetLabel: nodeLabels.get(edge.targetId) || 'existing node',
+          label: edge.label
+        });
       } else {
         console.warn('Invalid edge - missing nodes:', {
           edge,
           sourceExists,
-          targetExists
+          targetExists,
+          sourceLabel: nodeLabels.get(edge.sourceId),
+          targetLabel: nodeLabels.get(edge.targetId)
         });
       }
     });
 
     // Third pass: only accept nodes that have connections
     nodes.forEach(node => {
-      if (connectedNodes.has(node.id.toString())) {
+      const nodeId = node.id.toString();
+      const hasConnections = connectedNodes.has(nodeId);
+      const existingConnections = this.graph.degree(nodeId);
+
+      if (hasConnections || existingConnections > 0) {
         validNodes.push(node);
-      } else {
-        console.warn('Skipping disconnected node:', {
+        console.log('Accepted connected node:', {
           id: node.id,
-          label: node.label
+          label: node.label,
+          newConnections: edgeConnections.get(nodeId)?.size || 0,
+          existingConnections
+        });
+      } else {
+        console.warn('Rejecting disconnected node:', {
+          id: node.id,
+          label: node.label,
+          reason: 'No valid connections found'
         });
       }
     });
@@ -118,7 +156,8 @@ export class GraphManager {
       proposedEdges: edges.length,
       validNodes: validNodes.length,
       validEdges: validEdges.length,
-      isValid
+      isValid,
+      disconnectedNodesRejected: nodes.length - validNodes.length
     });
 
     return {
@@ -140,6 +179,12 @@ export class GraphManager {
       try {
         const expansion = await expandGraph(currentPrompt, this.graph);
 
+        // Log the full expansion result
+        console.log('Raw expansion result:', {
+          nodesProposed: expansion.nodes?.length || 0,
+          edgesProposed: expansion.edges?.length || 0
+        });
+
         // Validate expansion data
         const { isValid, validNodes, validEdges } = this.validateExpansionData(
           expansion.nodes || [],
@@ -147,7 +192,7 @@ export class GraphManager {
         );
 
         if (!isValid) {
-          console.log('Skipping invalid expansion');
+          console.log('Skipping invalid expansion - no valid connected components found');
           break;
         }
 
@@ -158,16 +203,12 @@ export class GraphManager {
           disconnectedBefore: this.countDisconnectedNodes()
         };
 
-        // Process validated nodes
+        // Process validated nodes and edges
         for (const nodeData of validNodes) {
           try {
             const node = await storage.createNode(nodeData);
             if (!this.graph.hasNode(node.id.toString())) {
               this.graph.addNode(node.id.toString(), { ...node });
-              console.log('Added node:', {
-                id: node.id,
-                label: node.label
-              });
             }
           } catch (error) {
             console.error('Failed to create node:', error);
@@ -184,36 +225,30 @@ export class GraphManager {
                 edge.targetId.toString(),
                 { ...edge }
               );
-              console.log('Added edge:', {
-                source: edge.sourceId,
-                target: edge.targetId,
-                label: edge.label
-              });
             }
           } catch (error) {
             console.error('Failed to create edge:', error);
           }
         }
 
-        // Log state changes
+        // Log final state and changes
         const finalState = {
           nodes: this.graph.order,
           edges: this.graph.size,
           disconnectedAfter: this.countDisconnectedNodes()
         };
 
-        console.log('Iteration state change:', {
+        console.log('Iteration complete:', {
           before: initialState,
           after: finalState,
           nodesAdded: finalState.nodes - initialState.nodes,
-          edgesAdded: finalState.edges - initialState.edges
+          edgesAdded: finalState.edges - initialState.edges,
+          disconnectedNodeChange: finalState.disconnectedAfter - initialState.disconnectedBefore
         });
 
         if (expansion.nextQuestion) {
           currentPrompt = expansion.nextQuestion;
-          console.log('Next iteration prompt:', currentPrompt);
         } else {
-          console.log('No next question provided, stopping expansion');
           break;
         }
 
