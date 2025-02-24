@@ -9,58 +9,50 @@ interface GraphViewerProps {
 
 const layoutConfig = {
   name: "cose",
-  animate: false, // Disable animation to prevent style resets
-  nodeRepulsion: 15000,
-  idealEdgeLength: 200,
-  nodeOverlap: 30,
-  padding: 50,
+  animate: false,
+  nodeDimensionsIncludeLabels: true,
+  nodeOverlap: 20,
+  padding: 20,
+  idealEdgeLength: 100,
   randomize: true,
-  componentSpacing: 300,
-  refresh: 30,
-  fit: true,
-  gravity: 0.3,
-  numIter: 10000,
-  initialTemp: 1000,
-  coolingFactor: 0.99,
-  minTemp: 1.0
-};
-
-// Define styles separately for better organization and reuse
-const baseNodeStyle = {
-  "background-color": "hsl(var(--muted))",
-  "label": "data(label)",
-  "color": "hsl(var(--foreground))",
-  "text-valign": "center",
-  "text-halign": "center",
-  "font-size": "14px",
-  "text-wrap": "wrap",
-  "text-max-width": "120px",
-  "width": "45px",
-  "height": "45px",
-  "border-width": "2px",
-  "border-color": "hsl(var(--border))"
+  componentSpacing: 100,
+  nodeRepulsion: 4500,
+  gravity: 0.25,
 };
 
 const styleSheet = [
   {
     selector: "node",
-    style: baseNodeStyle
+    style: {
+      "background-color": "hsl(var(--primary))",
+      "label": "data(label)",
+      "text-valign": "center",
+      "text-halign": "center",
+      "width": 30,
+      "height": 30,
+      "font-size": "12px",
+      "color": "hsl(var(--foreground))",
+      "text-wrap": "wrap",
+      "text-max-width": "80px",
+      "border-width": 2,
+      "border-color": "hsl(var(--border))"
+    }
   },
   {
     selector: "edge",
     style: {
-      "width": 2,
+      "width": 1,
       "line-color": "hsl(var(--muted))",
       "target-arrow-color": "hsl(var(--muted))",
       "target-arrow-shape": "triangle",
       "curve-style": "bezier",
       "label": "data(label)",
-      "font-size": "12px",
+      "font-size": "10px",
       "text-rotation": "autorotate",
       "text-margin-y": "-10px",
       "text-background-color": "hsl(var(--background))",
       "text-background-opacity": 0.8,
-      "text-background-padding": "3px"
+      "text-background-padding": "2px"
     }
   },
   {
@@ -68,35 +60,27 @@ const styleSheet = [
     style: {
       "background-color": "data(clusterColor)",
       "border-color": "data(clusterColor)",
-      "border-width": "3px",
+      "border-width": 3,
       "z-index": 10
     }
   },
   {
     selector: "node.centroid",
     style: {
-      "border-width": "5px",
+      "border-width": 4,
       "border-color": "hsl(var(--primary))",
-      "width": "70px",
-      "height": "70px",
+      "width": 40,
+      "height": 40,
       "z-index": 20
-    }
-  },
-  {
-    selector: "node.disconnected",
-    style: {
-      "border-color": "hsl(var(--destructive))",
-      "border-width": "3px"
     }
   }
 ];
 
 function generateClusterColors(clusters: ClusterResult[]): Record<number, string> {
   return clusters.reduce((acc, cluster) => {
-    // Use golden ratio for better color distribution
     const hue = (cluster.clusterId * 137.5) % 360;
-    const saturation = 70 + (cluster.clusterId * 5) % 20;
-    const lightness = 45 + (cluster.clusterId * 7) % 20;
+    const saturation = 70;
+    const lightness = 50;
     acc[cluster.clusterId] = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
     return acc;
   }, {} as Record<number, string>);
@@ -108,10 +92,26 @@ export function GraphViewer({ data }: GraphViewerProps) {
   useEffect(() => {
     if (!cyRef.current) return;
 
+    console.log('Rendering graph with data:', {
+      nodes: data.nodes.length,
+      edges: data.edges.length,
+      clusters: data.clusters?.length || 0
+    });
+
     const cy = cyRef.current;
 
     // Generate cluster colors
     const clusterColors = data.clusters ? generateClusterColors(data.clusters) : {};
+
+    if (data.clusters?.length) {
+      console.log('Cluster colors generated:', 
+        data.clusters.map(c => ({
+          id: c.clusterId,
+          color: clusterColors[c.clusterId],
+          nodes: c.nodes.length
+        }))
+      );
+    }
 
     // Create elements with cluster data
     const nodeElements = data.nodes.map(node => {
@@ -124,14 +124,15 @@ export function GraphViewer({ data }: GraphViewerProps) {
           id: node.id.toString(),
           label: node.label,
           type: node.type,
-          degree: data.metrics.degree[node.id] || 0,
-          ...(nodeCluster && { clusterColor: clusterColors[nodeCluster.clusterId] })
+          ...(nodeCluster && { 
+            clusterColor: clusterColors[nodeCluster.clusterId],
+            clusterId: nodeCluster.clusterId
+          })
         },
         classes: [] as string[],
         group: 'nodes'
       };
 
-      // Add appropriate classes
       if (nodeCluster) {
         element.classes.push('clustered');
         if (nodeCluster.metadata.centroidNode === node.id.toString()) {
@@ -147,47 +148,30 @@ export function GraphViewer({ data }: GraphViewerProps) {
         id: `e${edge.id}`,
         source: edge.sourceId.toString(),
         target: edge.targetId.toString(),
-        label: edge.label,
-        weight: edge.weight
+        label: edge.label
       },
       group: 'edges'
     }));
 
-    // Function to enforce styles
-    const enforceStyles = () => {
-      // Apply base styles
-      cy.style(styleSheet);
+    // Log element creation
+    console.log('Created graph elements:', {
+      totalNodes: nodeElements.length,
+      clusteredNodes: nodeElements.filter(n => n.classes.includes('clustered')).length,
+      centroidNodes: nodeElements.filter(n => n.classes.includes('centroid')).length,
+      edges: edgeElements.length
+    });
 
-      // Check and reapply cluster styles
-      cy.nodes().forEach(node => {
-        if (node.data('clusterColor')) {
-          node.addClass('clustered');
-        }
-        if (node.degree() === 0) {
-          node.addClass('disconnected');
-        }
-      });
-
-      // Force style update
-      cy.style().update();
-    };
-
-    // Clear existing elements
+    // Clear and add new elements
     cy.elements().remove();
-
-    // Add new elements
     cy.add([...nodeElements, ...edgeElements]);
 
-    // Initial style application
-    enforceStyles();
+    // Apply styles
+    cy.style(styleSheet);
 
-    // Run layout with style preservation
+    // Run layout
     const layout = cy.layout({
       ...layoutConfig,
-      fit: true,
       stop: () => {
-        // Reapply styles after layout
-        enforceStyles();
         cy.fit();
       }
     });

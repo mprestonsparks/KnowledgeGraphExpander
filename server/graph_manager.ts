@@ -281,6 +281,8 @@ export class GraphManager {
   }
 
   private calculateMetrics(): GraphDataWithClusters {
+    console.log('Starting metrics calculation');
+
     const betweenness = centrality.betweenness(this.graph);
     let eigenvector: Record<string, number> = {};
 
@@ -300,9 +302,16 @@ export class GraphManager {
     });
 
     const clusters = this.semanticClustering.clusterNodes();
-    console.log('Calculated clusters:', {
+
+    console.log('Cluster calculation results:', {
       clusterCount: clusters.length,
-      clusterSizes: clusters.map(c => c.nodes.length)
+      clusterDetails: clusters.map(c => ({
+        id: c.clusterId,
+        nodeCount: c.nodes.length,
+        theme: c.metadata.semanticTheme,
+        coherence: c.metadata.coherenceScore,
+        centroid: c.metadata.centroidNode
+      }))
     });
 
     const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
@@ -315,27 +324,27 @@ export class GraphManager {
       id: parseInt(edgeId.split('-')[0])
     })) as Edge[];
 
-    const metrics = {
-      betweenness: Object.fromEntries(
-        Object.entries(betweenness).map(([k, v]) => [parseInt(k), v])
-      ),
-      eigenvector: Object.fromEntries(
-        Object.entries(eigenvector).map(([k, v]) => [parseInt(k), v])
-      ),
-      degree
-    };
-
-    console.log('Final graph metrics calculated:', {
+    console.log('Graph data prepared:', {
       nodes: currentNodes.length,
       edges: currentEdges.length,
-      clusters: clusters.length,
-      disconnectedNodes: this.countDisconnectedNodes()
+      metrics: {
+        degreeRange: [Math.min(...Object.values(degree)), Math.max(...Object.values(degree))],
+        betweennessRange: [Math.min(...Object.values(betweenness)), Math.max(...Object.values(betweenness))]
+      }
     });
 
     return {
       nodes: currentNodes,
       edges: currentEdges,
-      metrics,
+      metrics: {
+        betweenness: Object.fromEntries(
+          Object.entries(betweenness).map(([k, v]) => [parseInt(k), v])
+        ),
+        eigenvector: Object.fromEntries(
+          Object.entries(eigenvector).map(([k, v]) => [parseInt(k), v])
+        ),
+        degree
+      },
       clusters
     };
   }
