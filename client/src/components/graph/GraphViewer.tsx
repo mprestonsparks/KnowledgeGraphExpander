@@ -16,12 +16,16 @@ const layoutConfig = {
   name: "cose-bilkent",
   animate: false,
   nodeDimensionsIncludeLabels: true,
-  idealEdgeLength: 200,
-  nodeRepulsion: 7000,
-  padding: 80,
+  idealEdgeLength: 50,
+  nodeRepulsion: 4500,
+  padding: 10,
   randomize: false,
+  componentSpacing: 40,
   fit: true,
-  spacingFactor: 1.2
+  uniformNodeDimensions: false,
+  nodeOverlap: 4,
+  coolingFactor: 0.99,
+  minTemp: 1.0
 };
 
 const styleSheet: Stylesheet[] = [
@@ -33,40 +37,36 @@ const styleSheet: Stylesheet[] = [
       "color": "hsl(var(--foreground))",
       "text-valign": "center",
       "text-halign": "center",
-      "font-size": "14px",
+      "font-size": "12px",
       "text-wrap": "ellipsis",
-      "text-max-width": "120px",
-      "width": 60,
-      "height": 60,
-      "border-width": 2,
+      "text-max-width": "80px",
+      "width": 35,
+      "height": 35,
+      "border-width": 1,
       "border-color": "hsl(var(--border))",
       "text-background-color": "hsl(var(--background))",
       "text-background-opacity": 1,
-      "text-background-padding": 5,
-      "text-background-shape": "roundrectangle",
-      "text-outline-color": "hsl(var(--background))",
-      "text-outline-width": 3,
-      "opacity": 1
+      "text-background-padding": 2,
+      "text-background-shape": "roundrectangle"
     }
   },
   {
     selector: "edge",
     style: {
-      "width": 2,
+      "width": 1,
       "line-color": "hsl(var(--muted))",
       "target-arrow-color": "hsl(var(--muted))",
       "target-arrow-shape": "triangle",
       "curve-style": "bezier",
       "label": "data(label)",
-      "font-size": "12px",
+      "font-size": "10px",
       "text-rotation": "autorotate",
       "text-background-color": "hsl(var(--background))",
       "text-background-opacity": 1,
-      "text-background-padding": 4,
+      "text-background-padding": 2,
       "text-background-shape": "roundrectangle",
-      "text-outline-color": "hsl(var(--background))",
-      "text-outline-width": 3,
-      "text-margin-y": -12
+      "text-margin-y": -5,
+      "arrow-scale": 0.8
     }
   }
 ];
@@ -88,15 +88,14 @@ export function GraphViewer({ data }: GraphViewerProps) {
         edges: data.edges.length
       });
 
-      // Create elements
+      // Create elements array
       const elements: ElementDefinition[] = [
         ...data.nodes.map(node => ({
           data: {
             id: node.id.toString(),
             label: node.label
           },
-          group: 'nodes',
-          position: { x: 0, y: 0 }
+          classes: ['node']
         })),
         ...data.edges.map(edge => ({
           data: {
@@ -105,31 +104,39 @@ export function GraphViewer({ data }: GraphViewerProps) {
             target: edge.targetId.toString(),
             label: edge.label
           },
-          group: 'edges'
+          classes: ['edge']
         }))
       ];
 
       // Clear existing elements
       cy.elements().remove();
 
-      // Add new elements and apply styles
+      // Initialize the graph
       cy.add(elements);
       cy.style(styleSheet);
 
-      // Run layout with a delay to ensure proper initialization
+      // Run layout after a short delay to ensure proper initialization
       setTimeout(() => {
         const layout = cy.layout(layoutConfig);
         layout.run();
 
-        // Add extra padding when fitting view
-        cy.fit(undefined, 60);
+        // Add padding and center
+        cy.fit(undefined, 20);
         cy.center();
-      }, 100);
 
-      console.log('[DEBUG] Graph rendered with', elements.length, 'elements');
+        console.log('[DEBUG] Layout applied');
+      }, 50);
+
     } catch (error) {
       console.error('[DEBUG] Error rendering graph:', error);
     }
+
+    // Cleanup function
+    return () => {
+      if (cy) {
+        cy.destroy();
+      }
+    };
   }, [data]);
 
   if (!data.nodes.length) {
@@ -137,9 +144,9 @@ export function GraphViewer({ data }: GraphViewerProps) {
   }
 
   return (
-    <div className="w-full h-full border rounded-lg overflow-hidden bg-background p-6">
+    <div className="w-full h-full border rounded-lg overflow-hidden bg-background">
       <CytoscapeComponent
-        elements={[]} // Elements added via useEffect
+        elements={[]}
         stylesheet={styleSheet}
         layout={layoutConfig}
         cy={(cy) => {
