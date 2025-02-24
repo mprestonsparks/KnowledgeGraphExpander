@@ -24,8 +24,16 @@ export async function expandGraph(prompt: string): Promise<GraphData> {
 }
 
 export async function reconnectNodes(): Promise<GraphData> {
+  console.log('Requesting node reconnection');
   const response = await apiRequest("POST", "/api/graph/reconnect");
-  return response.json();
+  const data = await response.json();
+  console.log('Received reconnected graph data:', {
+    nodes: data.nodes.length,
+    edges: data.edges.length,
+    newEdges: data.edges.length - (window as any).previousEdgeCount || 0
+  });
+  (window as any).previousEdgeCount = data.edges.length;
+  return data;
 }
 
 export async function reapplyClustering(): Promise<GraphData> {

@@ -391,6 +391,7 @@ export class GraphManager {
       nodesByType.get(node.type)!.push(nodeId);
     });
 
+    let reconnectedCount = 0;
     // Connect nodes of similar types
     for (const [type, nodes] of nodesByType.entries()) {
       console.log(`Processing nodes of type: ${type}`);
@@ -403,7 +404,8 @@ export class GraphManager {
             if (
               !disconnectedNodeIds.has(potentialTarget) &&
               this.graph.getNodeAttributes(potentialTarget).type === type &&
-              !targetNodeId
+              !targetNodeId &&
+              potentialTarget !== nodeId
             ) {
               targetNodeId = potentialTarget;
             }
@@ -413,7 +415,7 @@ export class GraphManager {
             const sourceNode = this.graph.getNodeAttributes(nodeId);
             const targetNode = this.graph.getNodeAttributes(targetNodeId);
 
-            // Create edge in database
+            // Create edge in database first
             const edge = await storage.createEdge({
               sourceId: parseInt(nodeId),
               targetId: parseInt(targetNodeId),
@@ -421,13 +423,16 @@ export class GraphManager {
               weight: 1
             });
 
-            // Add edge to graph
-            this.graph.addEdge(nodeId, targetNodeId, { ...edge });
+            // Then add edge to graph
+            if (!this.graph.hasEdge(nodeId, targetNodeId)) {
+              this.graph.addEdge(nodeId, targetNodeId, { ...edge });
+              reconnectedCount++;
 
-            console.log('Connected nodes:', {
-              source: { id: nodeId, label: sourceNode.label },
-              target: { id: targetNodeId, label: targetNode.label }
-            });
+              console.log('Connected nodes:', {
+                source: { id: nodeId, label: sourceNode.label },
+                target: { id: targetNodeId, label: targetNode.label }
+              });
+            }
           }
         } catch (error) {
           console.error('Failed to connect node:', {
@@ -437,6 +442,12 @@ export class GraphManager {
         }
       }
     }
+
+    console.log('Reconnection complete:', {
+      initialDisconnected: disconnectedNodeIds.size,
+      reconnected: reconnectedCount,
+      remainingDisconnected: this.countDisconnectedNodes()
+    });
 
     // Recalculate metrics and clusters after reconnection
     return this.calculateMetrics();
