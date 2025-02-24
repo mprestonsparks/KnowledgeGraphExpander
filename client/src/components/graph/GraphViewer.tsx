@@ -93,7 +93,6 @@ const styleSheet = [
 
 function calculateClusterColors(clusters: ClusterResult[]): Record<number, string> {
   return clusters.reduce((acc, cluster, index) => {
-    // Use golden ratio for better color distribution
     const hue = (index * 137.5) % 360;
     const saturation = 70;
     const lightness = 55;
@@ -110,16 +109,16 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     const cy = cyRef.current;
 
-    console.log('GraphViewer: Processing new data', {
+    console.log('GraphViewer: Processing data', {
       nodes: data.nodes.length,
       edges: data.edges.length,
       clusters: data.clusters?.length || 0
     });
 
-    // Generate cluster colors first
+    // Generate cluster colors
     const clusterColors = data.clusters ? calculateClusterColors(data.clusters) : {};
 
-    // Create elements with cluster data
+    // Prepare nodes
     const nodeElements = data.nodes.map(node => {
       const nodeCluster = data.clusters?.find(c => 
         c.nodes.includes(node.id.toString())
@@ -140,7 +139,6 @@ export function GraphViewer({ data }: GraphViewerProps) {
         group: 'nodes'
       };
 
-      // Add appropriate classes
       if (nodeCluster) {
         element.classes.push('clustered');
         if (nodeCluster.metadata.centroidNode === node.id.toString()) {
@@ -155,49 +153,41 @@ export function GraphViewer({ data }: GraphViewerProps) {
       return element;
     });
 
-    // Create edge elements
+    // Prepare edges (preserve all edge data)
     const edgeElements = data.edges.map(edge => ({
       data: {
         id: `e${edge.id}`,
         source: edge.sourceId.toString(),
         target: edge.targetId.toString(),
-        label: edge.label
+        label: edge.label,
+        weight: edge.weight //Added weight to preserve edge data
       },
       group: 'edges'
     }));
 
-    // Log element creation
-    console.log('GraphViewer: Created elements', {
-      totalNodes: nodeElements.length,
-      clusteredNodes: nodeElements.filter(n => n.classes.includes('clustered')).length,
-      centroidNodes: nodeElements.filter(n => n.classes.includes('centroid')).length,
-      edges: edgeElements.length
-    });
-
     // Clear existing elements
     cy.elements().remove();
 
-    // Add new elements
+    // Add all elements at once
     cy.add([...nodeElements, ...edgeElements]);
 
-    // Apply base styles
+    // Apply styles
     cy.style(styleSheet);
 
-    // Create and run layout
+    // Run layout
     const layout = cy.layout(layoutConfig);
 
     layout.one('layoutstop', () => {
-      // Ensure styles are correctly applied after layout
-      cy.nodes('.clustered').forEach(node => {
-        const color = node.data('clusterColor');
-        console.log('Applying cluster style:', {
-          nodeId: node.id(),
-          color,
-          classes: node.classes()
-        });
+      // Verify and log element counts
+      console.log('Graph rendered:', {
+        nodes: cy.nodes().length,
+        edges: cy.edges().length,
+        clusteredNodes: cy.nodes('.clustered').length,
+        centroidNodes: cy.nodes('.centroid').length,
+        disconnectedNodes: cy.nodes('.disconnected').length
       });
 
-      // Force style refresh
+      // Ensure styles are applied
       cy.style().update();
       cy.fit();
     });

@@ -438,6 +438,7 @@ export class GraphManager {
       }
     }
 
+    // Recalculate metrics and clusters after reconnection
     return this.calculateMetrics();
   }
 }
