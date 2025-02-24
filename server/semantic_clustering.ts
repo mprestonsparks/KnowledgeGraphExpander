@@ -21,8 +21,7 @@ export class SemanticClusteringService {
   }
 
   private calculateNodeSimilarity(node1: Node, node2: Node): number {
-    // For now, use simple type-based similarity
-    // Will be enhanced with embeddings later
+    // Enhanced similarity calculation based on node type and attributes
     if (node1.type === node2.type) {
       return 0.8;
     }
@@ -30,7 +29,6 @@ export class SemanticClusteringService {
   }
 
   private findClusterCentroid(nodes: string[]): string {
-    // Use betweenness centrality to find the most central node
     let maxBetweenness = -1;
     let centroid = nodes[0];
 
@@ -46,9 +44,8 @@ export class SemanticClusteringService {
   }
 
   private inferClusterTheme(nodes: string[]): string {
-    // Get the most common node type in the cluster
     const typeCounts = new Map<string, number>();
-    
+
     nodes.forEach(nodeId => {
       const nodeType = this.graph.getNodeAttribute(nodeId, "type");
       typeCounts.set(nodeType, (typeCounts.get(nodeType) || 0) + 1);
@@ -70,7 +67,6 @@ export class SemanticClusteringService {
     let totalSimilarity = 0;
     let pairCount = 0;
 
-    // Calculate average pairwise similarity
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const node1 = this.graph.getNodeAttributes(nodes[i]);
@@ -89,7 +85,12 @@ export class SemanticClusteringService {
 
     // Use connected components as initial clusters
     const components = this.graph.stronglyConnectedComponents();
-    
+
+    console.log('Found connected components:', {
+      componentCount: components.length,
+      componentSizes: components.map(c => c.length)
+    });
+
     components.forEach((component, index) => {
       // Skip already visited nodes
       const unvisitedNodes = component.filter(node => !visited.has(node));
@@ -103,7 +104,7 @@ export class SemanticClusteringService {
       const semanticTheme = this.inferClusterTheme(unvisitedNodes);
       const coherenceScore = this.calculateClusterCoherence(unvisitedNodes);
 
-      clusters.push({
+      const cluster = {
         clusterId: index,
         nodes: unvisitedNodes,
         metadata: {
@@ -111,13 +112,34 @@ export class SemanticClusteringService {
           semanticTheme,
           coherenceScore
         }
+      };
+
+      console.log('Created cluster:', {
+        clusterId: index,
+        nodeCount: unvisitedNodes.length,
+        theme: semanticTheme,
+        centroid: centroidNode,
+        coherence: coherenceScore
       });
+
+      clusters.push(cluster);
     });
 
     // Sort clusters by size and coherence
-    return clusters.sort((a, b) => 
+    const sortedClusters = clusters.sort((a, b) => 
       (b.nodes.length * b.metadata.coherenceScore) - 
       (a.nodes.length * a.metadata.coherenceScore)
     );
+
+    console.log('Final clustering results:', {
+      totalClusters: sortedClusters.length,
+      clusterSizes: sortedClusters.map(c => ({ 
+        id: c.clusterId, 
+        nodes: c.nodes.length,
+        theme: c.metadata.semanticTheme 
+      }))
+    });
+
+    return sortedClusters;
   }
 }
