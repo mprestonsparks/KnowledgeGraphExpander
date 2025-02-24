@@ -1,6 +1,6 @@
 import Graph from "graphology";
 import { centrality } from "graphology-metrics";
-import { type Node, type Edge, type GraphData, type InsertEdge } from "@shared/schema";
+import { type Node, type Edge, type GraphData, type InsertEdge, type InsertNode } from "@shared/schema";
 import { storage } from "./storage";
 import { expandGraph } from "./openai_client";
 
@@ -65,6 +65,45 @@ export class GraphManager {
     }
   }
 
+  private validateGraphUpdate(nodes: InsertNode[], edges: InsertEdge[]): boolean {
+    // Create a map of all new nodes and their connections
+    const nodeConnections = new Map<string, Set<string>>();
+
+    // Initialize sets for all nodes
+    nodes.forEach(node => {
+      nodeConnections.set(node.label, new Set());
+    });
+
+    // Track connections from new edges
+    edges.forEach(edge => {
+      const sourceNode = this.graph.getNodeAttributes(edge.sourceId.toString());
+      const targetNode = this.graph.getNodeAttributes(edge.targetId.toString());
+
+      if (sourceNode) {
+        const sourceSet = nodeConnections.get(sourceNode.label) || new Set();
+        sourceSet.add(targetNode ? targetNode.label : edge.targetId.toString());
+        nodeConnections.set(sourceNode.label, sourceSet);
+      }
+
+      if (targetNode) {
+        const targetSet = nodeConnections.get(targetNode.label) || new Set();
+        targetSet.add(sourceNode ? sourceNode.label : edge.sourceId.toString());
+        nodeConnections.set(targetNode.label, targetSet);
+      }
+    });
+
+    // Verify each new node has at least one connection
+    let allConnected = true;
+    nodeConnections.forEach((connections, nodeLabel) => {
+      if (connections.size === 0) {
+        console.warn(`Node "${nodeLabel}" has no connections, skipping expansion`);
+        allConnected = false;
+      }
+    });
+
+    return allConnected;
+  }
+
   private async performIterativeExpansion(initialPrompt: string): Promise<void> {
     let currentPrompt = initialPrompt;
     this.currentIteration = 0;
@@ -76,13 +115,11 @@ export class GraphManager {
       try {
         const expansion = await expandGraph(currentPrompt, this.graph);
 
-        // Log the full expansion result
-        console.log('Expansion result:', {
-          nodesCount: expansion.nodes?.length || 0,
-          edgesCount: expansion.edges?.length || 0,
-          nodes: expansion.nodes,
-          edges: expansion.edges
-        });
+        // Validate graph connectivity before processing
+        if (!this.validateGraphUpdate(expansion.nodes || [], expansion.edges || [])) {
+          console.log('Skipping expansion due to disconnected nodes');
+          break;
+        }
 
         // Process nodes from this iteration
         for (const nodeData of expansion.nodes || []) {
