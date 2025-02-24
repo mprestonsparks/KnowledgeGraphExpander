@@ -69,9 +69,7 @@ const styleSheet = [
       "text-margin-y": "-10px",
       "text-background-color": "hsl(var(--background))",
       "text-background-opacity": 0.8,
-      "text-background-padding": "3px",
-      "opacity": 1,
-      "z-index": 1
+      "text-background-padding": "3px"
     }
   },
   {
@@ -79,7 +77,8 @@ const styleSheet = [
     style: {
       "background-color": "data(clusterColor)",
       "border-color": "data(clusterColor)",
-      "border-width": "3px"
+      "border-width": "3px",
+      "z-index": 10
     }
   },
   {
@@ -88,7 +87,8 @@ const styleSheet = [
       "border-width": "5px",
       "border-color": "hsl(var(--primary))",
       "width": "70px",
-      "height": "70px"
+      "height": "70px",
+      "z-index": 20
     }
   },
   {
@@ -125,37 +125,36 @@ export function GraphViewer({ data }: GraphViewerProps) {
   useEffect(() => {
     if (!cyRef.current) return;
 
-    console.log('Updating graph with new data:', {
+    // Store a reference to cytoscape instance
+    const cy = cyRef.current;
+
+    console.log('Starting graph update with data:', {
       nodes: data.nodes.length,
       edges: data.edges.length,
       clusters: data.clusters?.length || 0
     });
 
-    // Calculate cluster colors
+    // Calculate cluster colors with guaranteed unique hues
     const clusterColors = data.clusters?.reduce((acc, cluster) => {
-      const hue = (cluster.clusterId * 137.5) % 360;
+      const hue = (cluster.clusterId * 137.5) % 360; // Golden ratio for better distribution
       const saturation = 70 + (cluster.clusterId * 5) % 20;
       const lightness = 45 + (cluster.clusterId * 7) % 20;
       acc[cluster.clusterId] = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
       return acc;
     }, {} as Record<number, string>) || {};
 
-    // Log cluster assignments
+    // Debug cluster assignments
     if (data.clusters?.length) {
-      console.log('Cluster assignments:', data.clusters.map(c => ({
+      console.log('Cluster color assignments:', data.clusters.map(c => ({
         id: c.clusterId,
-        nodes: c.nodes.length,
         color: clusterColors[c.clusterId],
+        nodeCount: c.nodes.length,
         centroid: c.metadata.centroidNode
       })));
     }
 
-    // Prepare nodes with cluster data
+    // Prepare nodes with enforced cluster data
     const nodeElements = data.nodes.map(node => {
-      const nodeCluster = data.clusters?.find(c => 
-        c.nodes.includes(node.id.toString())
-      );
-
       const element = {
         data: {
           id: node.id.toString(),
@@ -167,6 +166,10 @@ export function GraphViewer({ data }: GraphViewerProps) {
         group: 'nodes' as const
       };
 
+      const nodeCluster = data.clusters?.find(c =>
+        c.nodes.includes(node.id.toString())
+      );
+
       if (nodeCluster) {
         element.data.clusterColor = clusterColors[nodeCluster.clusterId];
         element.classes.push('clustered');
@@ -174,6 +177,14 @@ export function GraphViewer({ data }: GraphViewerProps) {
         if (nodeCluster.metadata.centroidNode === node.id.toString()) {
           element.classes.push('centroid');
         }
+
+        // Debug node cluster assignment
+        console.log('Node cluster assignment:', {
+          nodeId: node.id,
+          clusterId: nodeCluster.clusterId,
+          color: element.data.clusterColor,
+          isCentroid: nodeCluster.metadata.centroidNode === node.id.toString()
+        });
       }
 
       return element;
@@ -191,56 +202,62 @@ export function GraphViewer({ data }: GraphViewerProps) {
       group: 'edges' as const
     }));
 
-    validateGraphElements(nodeElements, edgeElements);
-
     // Remove existing elements
-    cyRef.current.elements().remove();
+    cy.elements().remove();
 
-    // Add new elements with initial styles
-    cyRef.current.add([...nodeElements, ...edgeElements]);
-    cyRef.current.style(styleSheet);
+    // Add new elements and apply initial styles
+    cy.add([...nodeElements, ...edgeElements]);
+    cy.style(styleSheet);
 
-    // Function to apply cluster styles
-    const applyClusterStyles = () => {
-      cyRef.current?.nodes().forEach(node => {
+    // Function to verify and enforce styles
+    const enforceStyles = () => {
+      cy.nodes().forEach(node => {
         const clusterColor = node.data('clusterColor');
-        if (clusterColor) {
+        if (clusterColor && !node.hasClass('clustered')) {
           node.addClass('clustered');
         }
         if (node.degree() === 0) {
           node.addClass('disconnected');
         }
       });
-      cyRef.current?.style().update();
+
+      // Force style update
+      cy.style().update();
+
+      // Verify style application
+      console.log('Style verification:', {
+        totalNodes: cy.nodes().length,
+        clusteredNodes: cy.nodes('.clustered').length,
+        stylesApplied: cy.nodes('.clustered').map(n => ({
+          id: n.id(),
+          color: n.data('clusterColor'),
+          hasClass: n.hasClass('clustered')
+        }))
+      });
     };
 
-    // First apply styles
-    applyClusterStyles();
+    // Configure layout with proper style handling
+    const layout = cy.layout({
+      ...layoutConfig,
+      animate: true,
+      fit: true,
+      stop: function() {
+        console.log('Layout complete, enforcing final styles');
+        enforceStyles();
+        cy.fit();
+      }
+    });
+
+    // Initial style enforcement
+    enforceStyles();
 
     // Run layout
-    const layout = cyRef.current.layout(layoutConfig);
-
-    // Add event handlers for layout
-    layout.on('layoutstart', () => {
-      console.log('Layout started');
-    });
-
-    layout.on('layoutstop', () => {
-      console.log('Layout stopped, reapplying styles');
-      setTimeout(() => {
-        applyClusterStyles();
-        cyRef.current?.fit();
-        console.log('Final graph state:', {
-          nodes: cyRef.current?.nodes().length,
-          clusteredNodes: cyRef.current?.nodes('.clustered').length,
-          centroidNodes: cyRef.current?.nodes('.centroid').length,
-          disconnectedNodes: cyRef.current?.nodes('.disconnected').length
-        });
-      }, 50);
-    });
-
     layout.run();
 
+    // Add cleanup
+    return () => {
+      layout.stop();
+    };
   }, [data]);
 
   return (
