@@ -4,6 +4,7 @@ import { type Node, type Edge, type GraphData, type InsertEdge, type InsertNode 
 import { storage } from "./storage";
 import { expandGraph } from "./openai_client";
 import { SemanticClusteringService, type ClusterResult } from "./semantic_clustering";
+import connectedComponents from "graphology-components";
 
 interface GraphDataWithClusters extends GraphData {
   clusters: ClusterResult[];
@@ -268,6 +269,17 @@ export class GraphManager {
     }
   }
 
+  async recalculateClusters(): Promise<GraphDataWithClusters> {
+    console.log('Recalculating clusters for graph:', {
+      nodes: this.graph.order,
+      edges: this.graph.size
+    });
+
+    // Force new cluster calculation
+    this.semanticClustering = new SemanticClusteringService(this.graph);
+    return this.calculateMetrics();
+  }
+
   private calculateMetrics(): GraphDataWithClusters {
     const betweenness = centrality.betweenness(this.graph);
     let eigenvector: Record<string, number> = {};
@@ -275,6 +287,7 @@ export class GraphManager {
     try {
       eigenvector = centrality.eigenvector(this.graph);
     } catch (error) {
+      console.warn('Failed to calculate eigenvector centrality:', error);
       this.graph.forEachNode((nodeId: string) => {
         eigenvector[nodeId] = 0;
       });
@@ -287,6 +300,10 @@ export class GraphManager {
     });
 
     const clusters = this.semanticClustering.clusterNodes();
+    console.log('Calculated clusters:', {
+      clusterCount: clusters.length,
+      clusterSizes: clusters.map(c => c.nodes.length)
+    });
 
     const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
       ...this.graph.getNodeAttributes(nodeId),
@@ -298,18 +315,27 @@ export class GraphManager {
       id: parseInt(edgeId.split('-')[0])
     })) as Edge[];
 
+    const metrics = {
+      betweenness: Object.fromEntries(
+        Object.entries(betweenness).map(([k, v]) => [parseInt(k), v])
+      ),
+      eigenvector: Object.fromEntries(
+        Object.entries(eigenvector).map(([k, v]) => [parseInt(k), v])
+      ),
+      degree
+    };
+
+    console.log('Final graph metrics calculated:', {
+      nodes: currentNodes.length,
+      edges: currentEdges.length,
+      clusters: clusters.length,
+      disconnectedNodes: this.countDisconnectedNodes()
+    });
+
     return {
       nodes: currentNodes,
       edges: currentEdges,
-      metrics: {
-        betweenness: Object.fromEntries(
-          Object.entries(betweenness).map(([k, v]) => [parseInt(k), v])
-        ),
-        eigenvector: Object.fromEntries(
-          Object.entries(eigenvector).map(([k, v]) => [parseInt(k), v])
-        ),
-        degree
-      },
+      metrics,
       clusters
     };
   }

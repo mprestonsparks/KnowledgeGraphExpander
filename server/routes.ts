@@ -100,7 +100,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Add new cluster endpoint
   app.post('/api/graph/cluster', async (_req, res) => {
     try {
-      const graphData = await graphManager.calculateMetrics();
+      console.log('Starting cluster recalculation');
+      // Force recalculation of clusters through graph manager
+      const graphData = await graphManager.recalculateClusters();
+      console.log('Clusters recalculated, broadcasting update');
       broadcastUpdate(graphData);
       res.json(graphData);
     } catch (error) {

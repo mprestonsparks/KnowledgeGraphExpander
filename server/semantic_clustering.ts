@@ -1,5 +1,6 @@
 import { type Node } from "@shared/schema";
-import { type Graph } from "graphology";
+import Graph from "graphology";
+import connectedComponents from "graphology-components";
 
 export interface ClusterMetadata {
   centroidNode: string;
@@ -29,13 +30,13 @@ export class SemanticClusteringService {
   }
 
   private findClusterCentroid(nodes: string[]): string {
-    let maxBetweenness = -1;
+    let maxDegree = -1;
     let centroid = nodes[0];
 
     nodes.forEach(nodeId => {
-      const betweenness = this.graph.betweennessCentrality(nodeId);
-      if (betweenness > maxBetweenness) {
-        maxBetweenness = betweenness;
+      const degree = this.graph.degree(nodeId);
+      if (degree > maxDegree) {
+        maxDegree = degree;
         centroid = nodeId;
       }
     });
@@ -69,8 +70,8 @@ export class SemanticClusteringService {
 
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
-        const node1 = this.graph.getNodeAttributes(nodes[i]);
-        const node2 = this.graph.getNodeAttributes(nodes[j]);
+        const node1 = this.graph.getNodeAttributes(nodes[i]) as Node;
+        const node2 = this.graph.getNodeAttributes(nodes[j]) as Node;
         totalSimilarity += this.calculateNodeSimilarity(node1, node2);
         pairCount++;
       }
@@ -80,11 +81,12 @@ export class SemanticClusteringService {
   }
 
   public clusterNodes(): ClusterResult[] {
+    console.log('Starting clustering process...');
     const clusters: ClusterResult[] = [];
     const visited = new Set<string>();
 
-    // Use connected components as initial clusters
-    const components = this.graph.stronglyConnectedComponents();
+    // Get connected components
+    const components = connectedComponents(this.graph);
 
     console.log('Found connected components:', {
       componentCount: components.length,
@@ -119,7 +121,8 @@ export class SemanticClusteringService {
         nodeCount: unvisitedNodes.length,
         theme: semanticTheme,
         centroid: centroidNode,
-        coherence: coherenceScore
+        coherence: coherenceScore,
+        nodeIds: unvisitedNodes
       });
 
       clusters.push(cluster);
@@ -136,7 +139,8 @@ export class SemanticClusteringService {
       clusterSizes: sortedClusters.map(c => ({ 
         id: c.clusterId, 
         nodes: c.nodes.length,
-        theme: c.metadata.semanticTheme 
+        theme: c.metadata.semanticTheme,
+        coherence: c.metadata.coherenceScore
       }))
     });
 
