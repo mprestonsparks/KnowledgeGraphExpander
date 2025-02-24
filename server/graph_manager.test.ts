@@ -149,4 +149,63 @@ describe("GraphManager - Expansion Tests", () => {
     expect(result.nodes).toHaveLength(1);
     expect(result.edges).toHaveLength(0);
   });
+
+  it("should handle node ID assignment correctly", async () => {
+    const mockExpansion = {
+      nodes: [
+        { 
+          label: "New Node 1",
+          type: "concept",
+          metadata: { description: "Test 1" }
+        },
+        { 
+          label: "New Node 2",
+          type: "concept",
+          metadata: { description: "Test 2" }
+        }
+      ],
+      edges: [
+        {
+          sourceId: 1,  // Existing node
+          targetId: 2,  // Will be assigned to first new node
+          label: "connects_to",
+          weight: 1
+        },
+        {
+          sourceId: 2,  // First new node
+          targetId: 3,  // Will be assigned to second new node
+          label: "relates_to",
+          weight: 1
+        }
+      ],
+      nextQuestion: "Test follow-up?"
+    };
+
+    vi.mocked(expandGraph).mockResolvedValue(mockExpansion);
+
+    let nodeIdCounter = 2;  // Start after initial node (id: 1)
+    vi.mocked(storage.createNode).mockImplementation(async (node: InsertNode) => ({
+      id: nodeIdCounter++,
+      ...node
+    }));
+
+    let edgeIdCounter = 1;
+    vi.mocked(storage.createEdge).mockImplementation(async (edge: InsertEdge) => ({
+      id: edgeIdCounter++,
+      ...edge
+    }));
+
+    const result = await graphManager.startIterativeExpansion("Test node IDs");
+
+    // Verify node creation and ID assignment
+    expect(result.nodes).toHaveLength(3); // Initial + 2 new nodes
+    expect(result.nodes.map(n => n.id)).toEqual([1, 2, 3]);
+
+    // Verify edge creation with correct node references
+    expect(result.edges).toHaveLength(2);
+    expect(result.edges[0].sourceId).toBe(1);
+    expect(result.edges[0].targetId).toBe(2);
+    expect(result.edges[1].sourceId).toBe(2);
+    expect(result.edges[1].targetId).toBe(3);
+  });
 });

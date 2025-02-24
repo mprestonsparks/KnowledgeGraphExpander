@@ -178,7 +178,6 @@ export class GraphManager {
 
   private validateExpansionData(nodes: InsertNode[], edges: InsertEdge[]): {
     isValid: boolean;
-    connectedNodes: Set<string>;
     validNodes: InsertNode[];
     validEdges: InsertEdge[];
   } {
@@ -188,12 +187,16 @@ export class GraphManager {
     const validNodes: InsertNode[] = [];
     const validEdges: InsertEdge[] = [];
 
-    // First pass: collect all proposed nodes and existing nodes
-    nodes.forEach(node => {
-      nodeLabels.set(node.id, node.label);
-      console.log('Processing node:', {
-        id: node.id,
-        label: node.label
+    // First pass: collect all proposed nodes
+    const nextNodeId = Math.max(...Array.from(this.graph.nodes()).map(id => parseInt(id))) + 1;
+
+    nodes.forEach((node, index) => {
+      const nodeId = nextNodeId + index;
+      nodeLabels.set(nodeId, node.label);
+      console.log('Processing proposed node:', {
+        nodeId,
+        label: node.label,
+        type: node.type
       });
     });
 
@@ -231,29 +234,32 @@ export class GraphManager {
           edge,
           sourceExists,
           targetExists,
-          sourceLabel: nodeLabels.get(edge.sourceId),
-          targetLabel: nodeLabels.get(edge.targetId)
+          sourceId,
+          targetId
         });
       }
     });
 
     // Third pass: only accept nodes that have connections
-    nodes.forEach(node => {
-      const nodeId = node.id.toString();
+    nodes.forEach((node, index) => {
+      const nodeId = (nextNodeId + index).toString();
       const hasConnections = connectedNodes.has(nodeId);
       const existingConnections = this.graph.degree(nodeId);
 
       if (hasConnections || existingConnections > 0) {
-        validNodes.push(node);
+        validNodes.push({
+          ...node,
+          id: parseInt(nodeId)
+        });
         console.log('Accepted connected node:', {
-          id: node.id,
+          id: nodeId,
           label: node.label,
           newConnections: edgeConnections.get(nodeId)?.size || 0,
           existingConnections
         });
       } else {
         console.warn('Rejecting disconnected node:', {
-          id: node.id,
+          id: nodeId,
           label: node.label,
           reason: 'No valid connections found'
         });
@@ -272,7 +278,6 @@ export class GraphManager {
 
     return {
       isValid,
-      connectedNodes,
       validNodes,
       validEdges
     };
