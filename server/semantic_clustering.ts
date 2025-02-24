@@ -1,6 +1,6 @@
 import { type Node } from "@shared/schema";
 import Graph from "graphology";
-import connectedComponents from "graphology-components";
+import { connectedComponents } from "graphology-components";
 
 export interface ClusterMetadata {
   centroidNode: string;
@@ -22,11 +22,32 @@ export class SemanticClusteringService {
   }
 
   private calculateNodeSimilarity(node1: Node, node2: Node): number {
-    // Enhanced similarity calculation based on node type and attributes
+    let similarity = 0;
+
+    // Type similarity has the highest weight (0.9)
     if (node1.type === node2.type) {
-      return 0.8;
+      similarity += 0.9;
     }
-    return 0.2;
+
+    // Label similarity check (more granular)
+    const label1 = node1.label.toLowerCase();
+    const label2 = node2.label.toLowerCase();
+    if (label1 === label2) {
+      similarity += 0.4; // Exact match bonus
+    } else if (label1.includes(label2) || label2.includes(label1)) {
+      similarity += 0.3; // Partial match
+    } else if (label1.split(' ')[0] === label2.split(' ')[0]) {
+      similarity += 0.2; // Same prefix
+    }
+
+    // Connected nodes get a higher bonus (0.4)
+    if (this.graph.hasEdge(node1.id.toString(), node2.id.toString()) ||
+        this.graph.hasEdge(node2.id.toString(), node1.id.toString())) {
+      similarity += 0.4;
+    }
+
+    // Normalize to [0,1]
+    return Math.min(1, similarity);
   }
 
   private findClusterCentroid(nodes: string[]): string {
@@ -85,15 +106,15 @@ export class SemanticClusteringService {
     const clusters: ClusterResult[] = [];
     const visited = new Set<string>();
 
-    // Get connected components
-    const components = connectedComponents(this.graph);
+    // Get connected components using graphology-components
+    const componentsList = connectedComponents(this.graph);
 
     console.log('Found connected components:', {
-      componentCount: components.length,
-      componentSizes: components.map(c => c.length)
+      componentCount: componentsList.length,
+      componentSizes: componentsList.map(c => c.length)
     });
 
-    components.forEach((component, index) => {
+    componentsList.forEach((component, index) => {
       // Skip already visited nodes
       const unvisitedNodes = component.filter(node => !visited.has(node));
       if (unvisitedNodes.length === 0) return;
@@ -101,7 +122,6 @@ export class SemanticClusteringService {
       // Mark nodes as visited
       unvisitedNodes.forEach(node => visited.add(node));
 
-      // Calculate cluster metadata
       const centroidNode = this.findClusterCentroid(unvisitedNodes);
       const semanticTheme = this.inferClusterTheme(unvisitedNodes);
       const coherenceScore = this.calculateClusterCoherence(unvisitedNodes);
@@ -121,8 +141,7 @@ export class SemanticClusteringService {
         nodeCount: unvisitedNodes.length,
         theme: semanticTheme,
         centroid: centroidNode,
-        coherence: coherenceScore,
-        nodeIds: unvisitedNodes
+        coherence: coherenceScore
       });
 
       clusters.push(cluster);
