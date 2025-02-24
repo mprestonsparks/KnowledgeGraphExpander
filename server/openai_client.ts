@@ -22,21 +22,15 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
     initializeOpenAI(process.env.OPENAI_API_KEY || '');
   }
 
+  // Get current graph state
   const existingNodes = Array.from(currentGraph.nodes()).map(nodeId => ({
     id: parseInt(nodeId),
     ...currentGraph.getNodeAttributes(nodeId)
   }));
 
-  const existingEdges = Array.from(currentGraph.edges()).map(edgeId => ({
-    source: parseInt(currentGraph.source(edgeId)),
-    target: parseInt(currentGraph.target(edgeId)),
-    ...currentGraph.getEdgeAttributes(edgeId)
-  }));
-
-  console.log('Current graph state for expansion:', {
-    prompt,
+  console.log('[DEBUG] Current graph state:', {
     nodeCount: existingNodes.length,
-    edgeCount: existingEdges.length
+    nodes: existingNodes.map(n => ({ id: n.id, label: n.label }))
   });
 
   try {
@@ -45,38 +39,28 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
       messages: [
         {
           role: "system",
-          content: `You are a knowledge graph reasoning system. When expanding the graph, follow these rules:
+          content: `You are a knowledge graph expansion system. Add ONE new node and connect it to the graph.
 
-1. Return a JSON object with exactly these fields:
+Format response as JSON:
 {
-  "reasoning": "<|thinking|>Your step-by-step reasoning about expansion|</thinking|>",
-  "nodes": [{ 
-    "label": string (node name),
+  "node": { 
+    "label": "string (node name)",
     "type": "concept",
-    "metadata": { "description": string }
-  }],
-  "edges": [{ 
-    "sourceId": number (existing node ID or new node position + ${existingNodes.length}),
-    "targetId": number (existing node ID or new node position + ${existingNodes.length}),
-    "label": string (relationship type),
-    "weight": number (1 for standard relationships)
-  }],
-  "nextQuestion": string (follow-up question for further exploration)
-}
-
-2. Node and edge rules:
-- Each new node must connect to at least one other node (existing or new)
-- Node IDs for new nodes start at ${existingNodes.length + 1}
-- Edge sourceId/targetId must reference valid nodes
-- Focus on quality over quantity (2-3 well-connected nodes)`
+    "metadata": { "description": "string" }
+  },
+  "edge": {
+    "sourceId": number (pick an existing node ID: ${existingNodes.map(n => n.id).join(', ')}),
+    "targetId": ${existingNodes.length + 1} (this will be the new node's ID),
+    "label": "string (relationship)",
+    "weight": 1
+  }
+}`
         },
         {
-          role: "user",
-          content: `Current graph state:
-Nodes: ${JSON.stringify(existingNodes, null, 2)}
-Edges: ${JSON.stringify(existingEdges, null, 2)}
+          role: "user", 
+          content: `Current nodes: ${JSON.stringify(existingNodes.map(n => ({ id: n.id, label: n.label })), null, 2)}
 
-Prompt for expansion: ${prompt}`
+Add a node related to: ${prompt}`
         }
       ],
       response_format: { type: "json_object" }
@@ -89,61 +73,48 @@ Prompt for expansion: ${prompt}`
     let result;
     try {
       result = JSON.parse(response.choices[0].message.content);
-      console.log('Parsed expansion result:', {
-        reasoning: result.reasoning,
-        newNodes: result.nodes?.length,
-        newEdges: result.edges?.length,
-        nextQuestion: result.nextQuestion
-      });
+      console.log('[DEBUG] OpenAI response:', result);
     } catch (error) {
       throw new Error('Invalid JSON response from OpenAI');
     }
 
-    // Validate required fields
-    if (!result.nodes || !Array.isArray(result.nodes) || !result.edges || !Array.isArray(result.edges)) {
-      throw new Error('Invalid response format from OpenAI: missing nodes or edges arrays');
+    // Validate response
+    if (!result.node || !result.edge) {
+      console.error('[DEBUG] Invalid response structure:', result);
+      throw new Error('Invalid response format: missing node or edge');
     }
 
-    // Verify nodes have required fields
-    result.nodes.forEach((node: any, index: number) => {
-      if (!node.label || !node.type || !node.metadata?.description) {
-        console.error('Invalid node:', node);
-        throw new Error(`Invalid node at index ${index}: missing required fields`);
-      }
-    });
+    // Validate node
+    if (!result.node.label || !result.node.type || !result.node.metadata?.description) {
+      console.error('[DEBUG] Invalid node:', result.node);
+      throw new Error('Invalid node: missing required fields');
+    }
 
-    // Verify edges have required fields and valid connections
-    result.edges.forEach((edge: any, index: number) => {
-      if (!edge.sourceId || !edge.targetId || !edge.label || typeof edge.weight !== 'number') {
-        console.error('Invalid edge:', edge);
-        throw new Error(`Invalid edge at index ${index}: missing required fields`);
-      }
+    // Validate edge
+    if (!result.edge.sourceId || !result.edge.targetId || !result.edge.label || typeof result.edge.weight !== 'number') {
+      console.error('[DEBUG] Invalid edge:', result.edge);
+      throw new Error('Invalid edge: missing required fields');
+    }
 
-      const sourceExists = existingNodes.some(n => n.id === edge.sourceId) ||
-                          result.nodes.some((_: any, i: number) => edge.sourceId === existingNodes.length + i + 1);
+    // Check edge connections
+    const sourceExists = existingNodes.some(n => n.id === result.edge.sourceId);
+    if (!sourceExists) {
+      console.error('[DEBUG] Invalid source node:', {
+        sourceId: result.edge.sourceId,
+        existingNodes: existingNodes.map(n => n.id)
+      });
+      throw new Error('Invalid edge: source node does not exist');
+    }
 
-      const targetExists = existingNodes.some(n => n.id === edge.targetId) ||
-                          result.nodes.some((_: any, i: number) => edge.targetId === existingNodes.length + i + 1);
+    // Return simplified structure
+    return {
+      nodes: [result.node],
+      edges: [result.edge]
+    };
 
-      if (!sourceExists || !targetExists) {
-        console.error('Invalid edge connections:', {
-          edge,
-          sourceExists,
-          targetExists,
-          existingNodes: existingNodes.map(n => n.id),
-          newNodeIds: result.nodes.map((_: any, i: number) => existingNodes.length + i + 1)
-        });
-        throw new Error(`Invalid edge at index ${index}: references non-existent node`);
-      }
-    });
-
-    return result;
   } catch (error) {
-    console.error('Failed to expand graph:', error);
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('Failed to expand graph');
+    console.error('[DEBUG] Expansion error:', error);
+    throw error;
   }
 }
 
