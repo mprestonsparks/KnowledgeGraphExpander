@@ -40,7 +40,8 @@ export class GraphManager {
 
     console.log('Graph initialized:', {
       nodes: this.graph.order,
-      edges: this.graph.size
+      edges: this.graph.size,
+      disconnectedNodes: this.countDisconnectedNodes()
     });
   }
 
@@ -65,43 +66,67 @@ export class GraphManager {
     }
   }
 
-  private validateGraphUpdate(nodes: InsertNode[], edges: InsertEdge[]): boolean {
-    // Create a map of all new nodes and their connections
-    const nodeConnections = new Map<string, Set<string>>();
+  private validateExpansionData(nodes: InsertNode[], edges: InsertEdge[]): { 
+    isValid: boolean;
+    connectedNodes: Set<string>;
+    validNodes: InsertNode[];
+    validEdges: InsertEdge[];
+  } {
+    const nodeLabels = new Map<number, string>();
+    const connectedNodes = new Set<string>();
+    const validNodes: InsertNode[] = [];
+    const validEdges: InsertEdge[] = [];
 
-    // Initialize sets for all nodes
-    nodes.forEach(node => {
-      nodeConnections.set(node.label, new Set());
-    });
+    // First pass: collect all proposed nodes
+    nodes.forEach(node => nodeLabels.set(node.id, node.label));
 
-    // Track connections from new edges
+    // Second pass: validate edges and track connected nodes
     edges.forEach(edge => {
-      const sourceNode = this.graph.getNodeAttributes(edge.sourceId.toString());
-      const targetNode = this.graph.getNodeAttributes(edge.targetId.toString());
+      const sourceId = edge.sourceId.toString();
+      const targetId = edge.targetId.toString();
+      const sourceExists = this.graph.hasNode(sourceId) || nodeLabels.has(edge.sourceId);
+      const targetExists = this.graph.hasNode(targetId) || nodeLabels.has(edge.targetId);
 
-      if (sourceNode) {
-        const sourceSet = nodeConnections.get(sourceNode.label) || new Set();
-        sourceSet.add(targetNode ? targetNode.label : edge.targetId.toString());
-        nodeConnections.set(sourceNode.label, sourceSet);
-      }
-
-      if (targetNode) {
-        const targetSet = nodeConnections.get(targetNode.label) || new Set();
-        targetSet.add(sourceNode ? sourceNode.label : edge.sourceId.toString());
-        nodeConnections.set(targetNode.label, targetSet);
-      }
-    });
-
-    // Verify each new node has at least one connection
-    let allConnected = true;
-    nodeConnections.forEach((connections, nodeLabel) => {
-      if (connections.size === 0) {
-        console.warn(`Node "${nodeLabel}" has no connections, skipping expansion`);
-        allConnected = false;
+      if (sourceExists && targetExists) {
+        validEdges.push(edge);
+        connectedNodes.add(sourceId);
+        connectedNodes.add(targetId);
+      } else {
+        console.warn('Invalid edge - missing nodes:', {
+          edge,
+          sourceExists,
+          targetExists
+        });
       }
     });
 
-    return allConnected;
+    // Third pass: only accept nodes that have connections
+    nodes.forEach(node => {
+      if (connectedNodes.has(node.id.toString())) {
+        validNodes.push(node);
+      } else {
+        console.warn('Skipping disconnected node:', {
+          id: node.id,
+          label: node.label
+        });
+      }
+    });
+
+    const isValid = validNodes.length > 0 && validEdges.length > 0;
+    console.log('Expansion validation results:', {
+      proposedNodes: nodes.length,
+      proposedEdges: edges.length,
+      validNodes: validNodes.length,
+      validEdges: validEdges.length,
+      isValid
+    });
+
+    return {
+      isValid,
+      connectedNodes,
+      validNodes,
+      validEdges
+    };
   }
 
   private async performIterativeExpansion(initialPrompt: string): Promise<void> {
@@ -115,22 +140,33 @@ export class GraphManager {
       try {
         const expansion = await expandGraph(currentPrompt, this.graph);
 
-        // Validate graph connectivity before processing
-        if (!this.validateGraphUpdate(expansion.nodes || [], expansion.edges || [])) {
-          console.log('Skipping expansion due to disconnected nodes');
+        // Validate expansion data
+        const { isValid, validNodes, validEdges } = this.validateExpansionData(
+          expansion.nodes || [],
+          expansion.edges || []
+        );
+
+        if (!isValid) {
+          console.log('Skipping invalid expansion');
           break;
         }
 
-        // Process nodes from this iteration
-        for (const nodeData of expansion.nodes || []) {
+        // Track initial state for logging
+        const initialState = {
+          nodes: this.graph.order,
+          edges: this.graph.size,
+          disconnectedBefore: this.countDisconnectedNodes()
+        };
+
+        // Process validated nodes
+        for (const nodeData of validNodes) {
           try {
             const node = await storage.createNode(nodeData);
             if (!this.graph.hasNode(node.id.toString())) {
               this.graph.addNode(node.id.toString(), { ...node });
-              console.log('Added new node:', {
+              console.log('Added node:', {
                 id: node.id,
-                label: node.label,
-                graphSize: this.graph.order
+                label: node.label
               });
             }
           } catch (error) {
@@ -138,13 +174,9 @@ export class GraphManager {
           }
         }
 
-        // Process edges from this iteration
-        for (const edgeData of expansion.edges || []) {
+        // Process validated edges
+        for (const edgeData of validEdges) {
           try {
-            if (!this.validateEdgeData(edgeData)) {
-              continue;
-            }
-
             const edge = await storage.createEdge(edgeData);
             if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
               this.graph.addEdge(
@@ -152,12 +184,10 @@ export class GraphManager {
                 edge.targetId.toString(),
                 { ...edge }
               );
-              console.log('Added new edge:', {
-                id: edge.id,
+              console.log('Added edge:', {
                 source: edge.sourceId,
                 target: edge.targetId,
-                label: edge.label,
-                graphEdges: this.graph.size
+                label: edge.label
               });
             }
           } catch (error) {
@@ -165,11 +195,18 @@ export class GraphManager {
           }
         }
 
-        // Verify graph state after updates
-        console.log('Graph state after iteration:', {
+        // Log state changes
+        const finalState = {
           nodes: this.graph.order,
           edges: this.graph.size,
-          disconnectedNodes: this.countDisconnectedNodes()
+          disconnectedAfter: this.countDisconnectedNodes()
+        };
+
+        console.log('Iteration state change:', {
+          before: initialState,
+          after: finalState,
+          nodesAdded: finalState.nodes - initialState.nodes,
+          edgesAdded: finalState.edges - initialState.edges
         });
 
         if (expansion.nextQuestion) {
@@ -187,37 +224,6 @@ export class GraphManager {
         break;
       }
     }
-  }
-
-  private validateEdgeData(edgeData: any): boolean {
-    if (typeof edgeData.sourceId !== 'number' || typeof edgeData.targetId !== 'number') {
-      console.warn('Invalid edge data types:', {
-        sourceId: typeof edgeData.sourceId,
-        targetId: typeof edgeData.targetId,
-        data: edgeData
-      });
-      return false;
-    }
-
-    const sourceNode = this.graph.hasNode(edgeData.sourceId.toString());
-    const targetNode = this.graph.hasNode(edgeData.targetId.toString());
-
-    if (!sourceNode || !targetNode) {
-      console.warn('Edge references missing nodes:', {
-        edge: edgeData,
-        sourceExists: sourceNode,
-        targetExists: targetNode
-      });
-      return false;
-    }
-
-    // Check if edge already exists
-    if (this.graph.hasEdge(edgeData.sourceId.toString(), edgeData.targetId.toString())) {
-      console.warn('Edge already exists:', edgeData);
-      return false;
-    }
-
-    return true;
   }
 
   private calculateMetrics(): GraphData {
@@ -262,6 +268,7 @@ export class GraphManager {
       }
     };
   }
+
   private countDisconnectedNodes(): number {
     let count = 0;
     this.graph.forEachNode((nodeId: string) => {

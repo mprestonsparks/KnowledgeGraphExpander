@@ -34,8 +34,8 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
   }));
 
   console.log('Current graph state:', {
-    nodes: existingNodes,
-    edges: existingEdges
+    nodes: existingNodes.length,
+    edges: existingEdges.length
   });
 
   try {
@@ -44,15 +44,18 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
       messages: [
         {
           role: "system",
-          content: `You are a knowledge graph reasoning system. Follow these steps:
+          content: `You are a knowledge graph reasoning system. When expanding the graph, follow these rules:
 
-1. First, provide your reasoning about how to expand the graph based on the prompt:
+1. Every new node MUST have at least one connection to either:
+   - An existing node in the graph
+   - Another new node being added in this iteration
+
+2. First, provide your reasoning about how to expand the graph:
 <|thinking|>
 [Step-by-step reasoning about potential new concepts and relationships]
 </|thinking|>
 
-2. Then, extract a local graph with new nodes and edges based on your reasoning.
-Return the result as JSON:
+3. Then, extract a local graph that maintains connectivity. Return the result as JSON:
 {
   "reasoning": string, // Your <|thinking|> block
   "nodes": [{ 
@@ -69,7 +72,10 @@ Return the result as JSON:
   "nextQuestion": string // A follow-up question based on the new nodes/edges
 }
 
-Focus on quality over quantity - suggest only a few highly relevant nodes and edges per iteration.`
+IMPORTANT: 
+- Each node must have at least one edge connecting it
+- Edges must form valid connections between nodes
+- Focus on quality over quantity - suggest only a few highly relevant nodes and edges`
         },
         {
           role: "user",
@@ -100,7 +106,9 @@ Prompt for expansion: ${prompt}`
     }
 
     // Log the reasoning process
-    console.log('Reasoning process:', result.reasoning);
+    if (result.reasoning) {
+      console.log('Reasoning output:', result.reasoning);
+    }
     console.log('Generated next question:', result.nextQuestion);
 
     return result;
