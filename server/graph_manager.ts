@@ -110,26 +110,33 @@ export class GraphManager {
   }
 
   private async updateGraphWithExpansion(nodes: InsertNode[], edges: InsertEdge[]) {
+    console.log('Starting graph update with:', {
+      nodesToAdd: nodes.length,
+      edgesToAdd: edges.length
+    });
+
     const initialState = {
       nodes: this.graph.order,
-      edges: this.graph.size,
-      disconnectedBefore: this.countDisconnectedNodes()
+      edges: this.graph.size
     };
 
     // Add new nodes
-    for (const nodeData of nodes) {
+    const createdNodes = await Promise.all(nodes.map(async (nodeData) => {
       try {
         const node = await storage.createNode(nodeData);
         if (!this.graph.hasNode(node.id.toString())) {
           this.graph.addNode(node.id.toString(), { ...node });
+          console.log('Added node:', { id: node.id, label: node.label });
         }
+        return node;
       } catch (error) {
         console.error('Failed to create node:', error);
+        return null;
       }
-    }
+    }));
 
     // Add new edges
-    for (const edgeData of edges) {
+    const createdEdges = await Promise.all(edges.map(async (edgeData) => {
       try {
         const edge = await storage.createEdge(edgeData);
         const sourceId = edge.sourceId.toString();
@@ -137,26 +144,36 @@ export class GraphManager {
 
         if (!this.graph.hasEdge(sourceId, targetId)) {
           this.graph.addEdge(sourceId, targetId, { ...edge });
+          console.log('Added edge:', {
+            id: edge.id,
+            source: edge.sourceId,
+            target: edge.targetId,
+            label: edge.label
+          });
         }
+        return edge;
       } catch (error) {
         console.error('Failed to create edge:', error);
+        return null;
       }
-    }
+    }));
 
-    // Log changes
     const finalState = {
       nodes: this.graph.order,
       edges: this.graph.size,
-      disconnectedAfter: this.countDisconnectedNodes()
+      addedNodes: createdNodes.filter(n => n !== null).length,
+      addedEdges: createdEdges.filter(e => e !== null).length
     };
 
-    console.log('Expansion update complete:', {
+    console.log('Graph update complete:', {
       before: initialState,
-      after: finalState,
-      nodesAdded: finalState.nodes - initialState.nodes,
-      edgesAdded: finalState.edges - initialState.edges,
-      disconnectedNodeChange: finalState.disconnectedAfter - initialState.disconnectedBefore
+      after: finalState
     });
+
+    return {
+      addedNodes: createdNodes.filter(n => n !== null),
+      addedEdges: createdEdges.filter(e => e !== null)
+    };
   }
 
   private validateExpansionData(nodes: InsertNode[], edges: InsertEdge[]): {

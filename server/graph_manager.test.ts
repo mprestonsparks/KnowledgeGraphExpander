@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GraphManager } from "./graph_manager";
 import { storage } from "./storage";
 import { expandGraph } from "./openai_client";
-import type { Node, Edge } from "../shared/schema";
+import type { Node, Edge } from "@shared/schema";
 
 // Mock dependencies
 vi.mock("./storage");
@@ -167,4 +167,84 @@ describe("GraphManager", () => {
     expect(result1.nodes).toHaveLength(4); // Original 3 + 1 new node
     expect(result1.edges).toHaveLength(3); // Original 2 + 1 new edge
   }, { timeout: 10000 });
+});
+
+describe("GraphManager - Iterative Expansion", () => {
+  let graphManager: GraphManager;
+
+  beforeEach(async () => {
+    vi.resetAllMocks();
+    graphManager = new GraphManager();
+
+    // Mock initial graph state
+    vi.mocked(storage.getFullGraph).mockResolvedValue({
+      nodes: [{ id: 1, label: "Initial Node", type: "concept", metadata: {} }],
+      edges: [],
+      metrics: { betweenness: {}, eigenvector: {}, degree: {} }
+    });
+
+    await graphManager.initialize();
+  });
+
+  it("should handle OpenAI expansion response correctly", async () => {
+    const mockExpansionResult = {
+      reasoning: "<|thinking|>Testing expansion|</thinking|>",
+      nodes: [
+        { label: "New Node", type: "concept", metadata: { description: "Test" } }
+      ],
+      edges: [
+        { sourceId: 1, targetId: 2, label: "connected_to", weight: 1 }
+      ],
+      nextQuestion: "What else should we explore?"
+    };
+
+    vi.mocked(expandGraph).mockResolvedValue(mockExpansionResult);
+    vi.mocked(storage.createNode).mockResolvedValue({
+      id: 2,
+      ...mockExpansionResult.nodes[0]
+    });
+    vi.mocked(storage.createEdge).mockResolvedValue({
+      id: 1,
+      ...mockExpansionResult.edges[0]
+    });
+
+    const result = await graphManager.startIterativeExpansion("Test prompt");
+
+    expect(result.nodes).toHaveLength(2);
+    expect(result.edges).toHaveLength(1);
+    expect(vi.mocked(storage.createNode)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(storage.createEdge)).toHaveBeenCalledTimes(1);
+  });
+
+  it("should continue expansion with follow-up questions", async () => {
+    const firstExpansion = {
+      nodes: [{ label: "First Node", type: "concept", metadata: {} }],
+      edges: [{ sourceId: 1, targetId: 2, label: "first", weight: 1 }],
+      nextQuestion: "Follow up?"
+    };
+
+    const secondExpansion = {
+      nodes: [{ label: "Second Node", type: "concept", metadata: {} }],
+      edges: [{ sourceId: 2, targetId: 3, label: "second", weight: 1 }],
+      nextQuestion: null
+    };
+
+    vi.mocked(expandGraph)
+      .mockResolvedValueOnce(firstExpansion)
+      .mockResolvedValueOnce(secondExpansion);
+
+    vi.mocked(storage.createNode)
+      .mockResolvedValueOnce({ id: 2, ...firstExpansion.nodes[0] })
+      .mockResolvedValueOnce({ id: 3, ...secondExpansion.nodes[0] });
+
+    vi.mocked(storage.createEdge)
+      .mockResolvedValueOnce({ id: 1, ...firstExpansion.edges[0] })
+      .mockResolvedValueOnce({ id: 2, ...secondExpansion.edges[0] });
+
+    const result = await graphManager.startIterativeExpansion("Initial prompt");
+
+    expect(result.nodes).toHaveLength(3);
+    expect(result.edges).toHaveLength(2);
+    expect(vi.mocked(expandGraph)).toHaveBeenCalledTimes(2);
+  });
 });

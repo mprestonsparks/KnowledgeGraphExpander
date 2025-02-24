@@ -7,7 +7,7 @@ let openaiInstance: OpenAI | null = null;
 export function initializeOpenAI(apiKey: string) {
   openaiInstance = new OpenAI({
     apiKey,
-    dangerouslyAllowBrowser: true // Required for test environment
+    dangerouslyAllowBrowser: true
   });
 }
 
@@ -33,9 +33,10 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
     ...currentGraph.getEdgeAttributes(edgeId)
   }));
 
-  console.log('Current graph state:', {
-    nodes: existingNodes.length,
-    edges: existingEdges.length
+  console.log('Current graph state for expansion:', {
+    prompt,
+    nodeCount: existingNodes.length,
+    edgeCount: existingEdges.length
   });
 
   try {
@@ -60,7 +61,7 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
   "reasoning": string, // Your <|thinking|> block
   "nodes": [{ 
     "label": string,
-    "type": string,
+    "type": "concept",
     "metadata": { description: string }
   }],
   "edges": [{ 
@@ -69,13 +70,14 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
     "label": string,
     "weight": number
   }],
-  "nextQuestion": string // A follow-up question based on the new nodes/edges
+  "nextQuestion": string // A follow-up question to explore further
 }
 
 IMPORTANT: 
 - Each node must have at least one edge connecting it
 - Edges must form valid connections between nodes
-- Focus on quality over quantity - suggest only a few highly relevant nodes and edges`
+- Focus on quality over quantity - suggest only a few highly relevant nodes and edges
+- Ensure edges reference either existing node IDs or new nodes being added`
         },
         {
           role: "user",
@@ -96,7 +98,12 @@ Prompt for expansion: ${prompt}`
     let result;
     try {
       result = JSON.parse(response.choices[0].message.content);
-      console.log('Parsed expansion result:', result);
+      console.log('Parsed expansion result:', {
+        reasoning: result.reasoning,
+        newNodes: result.nodes?.length,
+        newEdges: result.edges?.length,
+        nextQuestion: result.nextQuestion
+      });
     } catch (error) {
       throw new Error('Invalid JSON response from OpenAI');
     }
@@ -105,14 +112,33 @@ Prompt for expansion: ${prompt}`
       throw new Error('Invalid response format from OpenAI');
     }
 
-    // Log the reasoning process
-    if (result.reasoning) {
-      console.log('Reasoning output:', result.reasoning);
-    }
-    console.log('Generated next question:', result.nextQuestion);
+    // Verify nodes have required fields
+    result.nodes.forEach((node: any, index: number) => {
+      if (!node.label || !node.type || !node.metadata) {
+        throw new Error(`Invalid node at index ${index}: missing required fields`);
+      }
+    });
+
+    // Verify edges have required fields and valid connections
+    result.edges.forEach((edge: any, index: number) => {
+      if (!edge.sourceId || !edge.targetId || !edge.label || typeof edge.weight !== 'number') {
+        throw new Error(`Invalid edge at index ${index}: missing required fields`);
+      }
+
+      const sourceExists = existingNodes.some(n => n.id === edge.sourceId) ||
+                          result.nodes.some((_: any, i: number) => edge.sourceId === existingNodes.length + i + 1);
+
+      const targetExists = existingNodes.some(n => n.id === edge.targetId) ||
+                          result.nodes.some((_: any, i: number) => edge.targetId === existingNodes.length + i + 1);
+
+      if (!sourceExists || !targetExists) {
+        throw new Error(`Invalid edge at index ${index}: references non-existent node`);
+      }
+    });
 
     return result;
   } catch (error) {
+    console.error('Failed to expand graph:', error);
     if (error instanceof Error) {
       throw error;
     }
