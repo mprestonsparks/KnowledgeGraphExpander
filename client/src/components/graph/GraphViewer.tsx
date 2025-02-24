@@ -10,38 +10,42 @@ interface GraphViewerProps {
 const layoutConfig = {
   name: "cose",
   animate: false,
+  animationDuration: 500,
   nodeDimensionsIncludeLabels: true,
-  nodeOverlap: 20,
-  padding: 20,
-  idealEdgeLength: 100,
-  randomize: true,
-  componentSpacing: 100,
+  refresh: 20,
+  fit: true,
+  padding: 30,
   nodeRepulsion: 4500,
+  nodeOverlap: 20,
+  idealEdgeLength: 100,
   gravity: 0.25,
+  componentSpacing: 100,
+  randomize: false
 };
 
 const styleSheet = [
   {
     selector: "node",
     style: {
-      "background-color": "hsl(var(--primary))",
+      "background-color": "hsl(var(--muted))",
       "label": "data(label)",
       "text-valign": "center",
       "text-halign": "center",
-      "width": 30,
-      "height": 30,
+      "width": 40,
+      "height": 40,
       "font-size": "12px",
       "color": "hsl(var(--foreground))",
       "text-wrap": "wrap",
       "text-max-width": "80px",
       "border-width": 2,
-      "border-color": "hsl(var(--border))"
+      "border-color": "hsl(var(--border))",
+      "z-index": 1
     }
   },
   {
     selector: "edge",
     style: {
-      "width": 1,
+      "width": 1.5,
       "line-color": "hsl(var(--muted))",
       "target-arrow-color": "hsl(var(--muted))",
       "target-arrow-shape": "triangle",
@@ -52,7 +56,8 @@ const styleSheet = [
       "text-margin-y": "-10px",
       "text-background-color": "hsl(var(--background))",
       "text-background-opacity": 0.8,
-      "text-background-padding": "2px"
+      "text-background-padding": "2px",
+      "z-index": 0
     }
   },
   {
@@ -69,18 +74,29 @@ const styleSheet = [
     style: {
       "border-width": 4,
       "border-color": "hsl(var(--primary))",
-      "width": 40,
-      "height": 40,
-      "z-index": 20
+      "width": 50,
+      "height": 50,
+      "z-index": 20,
+      "font-size": "14px",
+      "font-weight": "bold"
+    }
+  },
+  {
+    selector: "node.disconnected",
+    style: {
+      "border-color": "hsl(var(--destructive))",
+      "border-width": 3,
+      "border-style": "dashed"
     }
   }
 ];
 
-function generateClusterColors(clusters: ClusterResult[]): Record<number, string> {
-  return clusters.reduce((acc, cluster) => {
-    const hue = (cluster.clusterId * 137.5) % 360;
+function calculateClusterColors(clusters: ClusterResult[]): Record<number, string> {
+  return clusters.reduce((acc, cluster, index) => {
+    // Use golden ratio for better color distribution
+    const hue = (index * 137.5) % 360;
     const saturation = 70;
-    const lightness = 50;
+    const lightness = 55;
     acc[cluster.clusterId] = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
     return acc;
   }, {} as Record<number, string>);
@@ -92,26 +108,16 @@ export function GraphViewer({ data }: GraphViewerProps) {
   useEffect(() => {
     if (!cyRef.current) return;
 
-    console.log('Rendering graph with data:', {
+    const cy = cyRef.current;
+
+    console.log('GraphViewer: Processing new data', {
       nodes: data.nodes.length,
       edges: data.edges.length,
       clusters: data.clusters?.length || 0
     });
 
-    const cy = cyRef.current;
-
-    // Generate cluster colors
-    const clusterColors = data.clusters ? generateClusterColors(data.clusters) : {};
-
-    if (data.clusters?.length) {
-      console.log('Cluster colors generated:', 
-        data.clusters.map(c => ({
-          id: c.clusterId,
-          color: clusterColors[c.clusterId],
-          nodes: c.nodes.length
-        }))
-      );
-    }
+    // Generate cluster colors first
+    const clusterColors = data.clusters ? calculateClusterColors(data.clusters) : {};
 
     // Create elements with cluster data
     const nodeElements = data.nodes.map(node => {
@@ -124,15 +130,17 @@ export function GraphViewer({ data }: GraphViewerProps) {
           id: node.id.toString(),
           label: node.label,
           type: node.type,
-          ...(nodeCluster && { 
+          degree: data.metrics.degree[node.id] || 0,
+          ...(nodeCluster && {
             clusterColor: clusterColors[nodeCluster.clusterId],
             clusterId: nodeCluster.clusterId
           })
         },
-        classes: [] as string[],
+        classes: [],
         group: 'nodes'
       };
 
+      // Add appropriate classes
       if (nodeCluster) {
         element.classes.push('clustered');
         if (nodeCluster.metadata.centroidNode === node.id.toString()) {
@@ -140,9 +148,14 @@ export function GraphViewer({ data }: GraphViewerProps) {
         }
       }
 
+      if (data.metrics.degree[node.id] === 0) {
+        element.classes.push('disconnected');
+      }
+
       return element;
     });
 
+    // Create edge elements
     const edgeElements = data.edges.map(edge => ({
       data: {
         id: `e${edge.id}`,
@@ -154,26 +167,39 @@ export function GraphViewer({ data }: GraphViewerProps) {
     }));
 
     // Log element creation
-    console.log('Created graph elements:', {
+    console.log('GraphViewer: Created elements', {
       totalNodes: nodeElements.length,
       clusteredNodes: nodeElements.filter(n => n.classes.includes('clustered')).length,
       centroidNodes: nodeElements.filter(n => n.classes.includes('centroid')).length,
       edges: edgeElements.length
     });
 
-    // Clear and add new elements
+    // Clear existing elements
     cy.elements().remove();
+
+    // Add new elements
     cy.add([...nodeElements, ...edgeElements]);
 
-    // Apply styles
+    // Apply base styles
     cy.style(styleSheet);
 
-    // Run layout
-    const layout = cy.layout({
-      ...layoutConfig,
-      stop: () => {
-        cy.fit();
-      }
+    // Create and run layout
+    const layout = cy.layout(layoutConfig);
+
+    layout.one('layoutstop', () => {
+      // Ensure styles are correctly applied after layout
+      cy.nodes('.clustered').forEach(node => {
+        const color = node.data('clusterColor');
+        console.log('Applying cluster style:', {
+          nodeId: node.id(),
+          color,
+          classes: node.classes()
+        });
+      });
+
+      // Force style refresh
+      cy.style().update();
+      cy.fit();
     });
 
     layout.run();
