@@ -28,9 +28,12 @@ export async function expandGraph(prompt: string, currentGraph: Graph) {
     ...currentGraph.getNodeAttributes(nodeId)
   }));
 
+  const nextNodeId = Math.max(...existingNodes.map(n => n.id)) + 1;
+
   console.log('[DEBUG] Current graph state:', {
     nodeCount: existingNodes.length,
-    nodes: existingNodes.map(n => ({ id: n.id, label: n.label }))
+    existingIds: existingNodes.map(n => n.id),
+    nextNodeId
   });
 
   try {
@@ -50,7 +53,7 @@ Format response as JSON:
   },
   "edge": {
     "sourceId": number (pick an existing node ID: ${existingNodes.map(n => n.id).join(', ')}),
-    "targetId": ${existingNodes.length + 1} (this will be the new node's ID),
+    "targetId": ${nextNodeId} (this will be the new node's ID),
     "label": "string (relationship)",
     "weight": 1
   }
@@ -91,7 +94,7 @@ Add a node related to: ${prompt}`
     }
 
     // Validate edge
-    if (!result.edge.sourceId || !result.edge.targetId || !result.edge.label || typeof result.edge.weight !== 'number') {
+    if (!result.edge.sourceId || !result.edge.label || typeof result.edge.weight !== 'number') {
       console.error('[DEBUG] Invalid edge:', result.edge);
       throw new Error('Invalid edge: missing required fields');
     }
@@ -105,6 +108,14 @@ Add a node related to: ${prompt}`
       });
       throw new Error('Invalid edge: source node does not exist');
     }
+
+    // Ensure edge.targetId is set to the next available ID
+    result.edge.targetId = nextNodeId;
+
+    console.log('[DEBUG] Validated expansion result:', {
+      node: result.node,
+      edge: result.edge
+    });
 
     // Return simplified structure
     return {

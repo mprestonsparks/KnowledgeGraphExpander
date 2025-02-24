@@ -20,65 +20,115 @@ export class GraphManager {
 
   async initialize() {
     const { nodes, edges } = await storage.getFullGraph();
+    console.log('[DEBUG] Loading initial graph data:', { nodeCount: nodes.length, edgeCount: edges.length });
 
-    nodes.forEach(node => {
+    // Add nodes first
+    for (const node of nodes) {
       if (!this.graph.hasNode(node.id.toString())) {
         this.graph.addNode(node.id.toString(), { ...node });
       }
-    });
+    }
 
-    edges.forEach(edge => {
+    // Then add edges
+    for (const edge of edges) {
       const sourceId = edge.sourceId.toString();
       const targetId = edge.targetId.toString();
 
-      if (this.graph.hasNode(sourceId) &&
+      if (this.graph.hasNode(sourceId) && 
           this.graph.hasNode(targetId) &&
           !this.graph.hasEdge(sourceId, targetId)) {
         this.graph.addEdge(sourceId, targetId, { ...edge });
       }
-    });
+    }
 
     console.log('[DEBUG] Graph initialized:', {
       nodes: this.graph.order,
-      edges: this.graph.size
+      edges: this.graph.size,
+      nodeIds: Array.from(this.graph.nodes())
     });
   }
 
   async startIterativeExpansion(prompt: string): Promise<GraphData> {
-    console.log('[DEBUG] Starting expansion with prompt:', prompt);
-
     try {
-      // Get expansion suggestion from OpenAI
+      // Step 1: Get current state
+      const currentNodeIds = Array.from(this.graph.nodes()).map(id => parseInt(id));
+      const nextNodeId = Math.max(...currentNodeIds) + 1;
+
+      console.log('[DEBUG] Starting expansion:', {
+        prompt,
+        currentNodes: currentNodeIds,
+        nextNodeId
+      });
+
+      // Step 2: Get expansion from OpenAI
       const expansion = await expandGraph(prompt, this.graph);
-      console.log('[DEBUG] Received expansion:', expansion);
 
-      // Add the new node
-      const createdNode = await storage.createNode(expansion.nodes[0]);
-      console.log('[DEBUG] Created node:', createdNode);
+      // Step 3: Create new node
+      const nodeData = expansion.nodes[0];
+      console.log('[DEBUG] Creating node:', nodeData);
 
-      this.graph.addNode(createdNode.id.toString(), { ...createdNode });
+      const newNode = await storage.createNode(nodeData);
+      if (!newNode || !newNode.id) {
+        throw new Error('Failed to create node: Invalid response from storage');
+      }
+      console.log('[DEBUG] Created node:', newNode);
 
-      // Add the new edge
-      const edge = await storage.createEdge(expansion.edges[0]);
-      console.log('[DEBUG] Created edge:', edge);
+      // Step 4: Add node to graph
+      const newNodeId = newNode.id.toString();
+      if (!this.graph.hasNode(newNodeId)) {
+        this.graph.addNode(newNodeId, { ...newNode });
+        console.log('[DEBUG] Added node to graph:', {
+          id: newNodeId,
+          exists: this.graph.hasNode(newNodeId)
+        });
+      }
 
-      this.graph.addEdge(
-        edge.sourceId.toString(),
-        edge.targetId.toString(),
-        { ...edge }
-      );
+      // Step 5: Verify node exists before creating edge
+      const nodeCheck = await storage.getNode(newNode.id);
+      if (!nodeCheck) {
+        throw new Error(`Node verification failed: Node ${newNode.id} not found in storage`);
+      }
 
-      return this.calculateMetrics();
+      // Step 6: Create edge
+      const edgeData: InsertEdge = {
+        sourceId: expansion.edges[0].sourceId,
+        targetId: newNode.id,
+        label: expansion.edges[0].label,
+        weight: expansion.edges[0].weight
+      };
+
+      console.log('[DEBUG] Creating edge:', edgeData);
+      const newEdge = await storage.createEdge(edgeData);
+      console.log('[DEBUG] Created edge:', newEdge);
+
+      // Step 7: Add edge to graph
+      const sourceId = newEdge.sourceId.toString();
+      const targetId = newEdge.targetId.toString();
+
+      if (!this.graph.hasEdge(sourceId, targetId)) {
+        this.graph.addEdge(sourceId, targetId, { ...newEdge });
+        console.log('[DEBUG] Added edge to graph:', {
+          sourceId,
+          targetId,
+          exists: this.graph.hasEdge(sourceId, targetId)
+        });
+      }
+
+      // Step 8: Verify final state
+      const finalState = this.calculateMetrics();
+      console.log('[DEBUG] Expansion complete:', {
+        nodesCount: finalState.nodes.length,
+        edgesCount: finalState.edges.length,
+        newNodeId: newNode.id,
+        graphContainsNode: this.graph.hasNode(newNodeId)
+      });
+
+      return finalState;
+
     } catch (error) {
       console.error('[DEBUG] Expansion error:', error);
       throw error;
     }
-  }
-
-  async recalculateClusters(): Promise<GraphDataWithClusters> {
-    console.log('[DEBUG] Recalculating clusters');
-    this.semanticClustering = new SemanticClusteringService(this.graph);
-    return this.calculateMetrics();
   }
 
   private calculateMetrics(): GraphDataWithClusters {
@@ -106,19 +156,15 @@ export class GraphManager {
       sizes: clusters.map(c => c.nodes.length)
     });
 
-    const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
-      ...this.graph.getNodeAttributes(nodeId),
-      id: parseInt(nodeId)
-    })) as Node[];
-
-    const currentEdges = Array.from(this.graph.edges()).map(edgeId => ({
-      ...this.graph.getEdgeAttributes(edgeId),
-      id: parseInt(edgeId.split('-')[0])
-    })) as Edge[];
-
     return {
-      nodes: currentNodes,
-      edges: currentEdges,
+      nodes: Array.from(this.graph.nodes()).map(nodeId => ({
+        ...this.graph.getNodeAttributes(nodeId),
+        id: parseInt(nodeId)
+      })) as Node[],
+      edges: Array.from(this.graph.edges()).map(edgeId => ({
+        ...this.graph.getEdgeAttributes(edgeId),
+        id: parseInt(edgeId.split('-')[0])
+      })) as Edge[],
       metrics: {
         betweenness: Object.fromEntries(
           Object.entries(betweenness).map(([k, v]) => [parseInt(k), v])
@@ -130,6 +176,12 @@ export class GraphManager {
       },
       clusters
     };
+  }
+
+  async recalculateClusters(): Promise<GraphDataWithClusters> {
+    console.log('[DEBUG] Recalculating clusters');
+    this.semanticClustering = new SemanticClusteringService(this.graph);
+    return this.calculateMetrics();
   }
 }
 
