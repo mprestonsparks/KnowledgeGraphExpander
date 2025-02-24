@@ -75,14 +75,7 @@ const styleSheet = [
     }
   },
   {
-    selector: "node.disconnected",
-    style: {
-      "border-color": "hsl(var(--destructive))",
-      "border-width": "3px"
-    }
-  },
-  {
-    selector: "node[?clusterColor]",
+    selector: "node.clustered",
     style: {
       "background-color": "data(clusterColor)",
       "border-color": "data(clusterColor)",
@@ -90,12 +83,19 @@ const styleSheet = [
     }
   },
   {
-    selector: "node[?isCentroid]",
+    selector: "node.centroid",
     style: {
       "border-width": "5px",
       "border-color": "hsl(var(--primary))",
       "width": "70px",
       "height": "70px"
+    }
+  },
+  {
+    selector: "node.disconnected",
+    style: {
+      "border-color": "hsl(var(--destructive))",
+      "border-width": "3px"
     }
   }
 ];
@@ -142,58 +142,57 @@ export function GraphViewer({ data }: GraphViewerProps) {
       clusters: data.clusters?.length || 0
     });
 
+    // Calculate cluster colors
     const clusterColors = data.clusters?.reduce((acc, cluster) => {
       // Use a wider color spectrum for better distinction
       const hue = (cluster.clusterId * 137.5) % 360;
-      const saturation = 70 + (cluster.clusterId * 5) % 20; // Vary saturation
-      const lightness = 45 + (cluster.clusterId * 7) % 20; // Vary lightness
+      const saturation = 70 + (cluster.clusterId * 5) % 20;
+      const lightness = 45 + (cluster.clusterId * 7) % 20;
       acc[cluster.clusterId] = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
       return acc;
     }, {} as Record<number, string>) || {};
 
-    // Log cluster color assignments
-    if (data.clusters) {
-      console.log('Cluster colors:', Object.entries(clusterColors).map(([id, color]) => ({
-        clusterId: id,
-        color,
-        nodeCount: data.clusters?.find(c => c.clusterId === parseInt(id))?.nodes.length
+    // Log cluster assignments
+    if (data.clusters?.length) {
+      console.log('Cluster assignments:', data.clusters.map(c => ({
+        id: c.clusterId,
+        nodes: c.nodes.length,
+        color: clusterColors[c.clusterId],
+        centroid: c.metadata.centroidNode
       })));
     }
 
+    // Prepare node elements with cluster data
     const nodeElements = data.nodes.map(node => {
       const nodeCluster = data.clusters?.find(c => 
         c.nodes.includes(node.id.toString())
       );
 
-      const nodeData = {
-        id: node.id.toString(),
-        label: node.label,
-        degree: data.metrics.degree[node.id] || 0,
-        betweenness: data.metrics.betweenness[node.id] || 0
-      };
-
-      if (nodeCluster) {
-        Object.assign(nodeData, {
-          cluster: nodeCluster.clusterId,
-          clusterColor: clusterColors[nodeCluster.clusterId],
-          isCentroid: nodeCluster.metadata.centroidNode === node.id.toString()
-        });
-      }
-
-      // Log node styling data
-      console.log('Node styling:', {
-        id: node.id,
-        cluster: nodeCluster?.clusterId,
-        color: nodeCluster ? clusterColors[nodeCluster.clusterId] : 'default',
-        isCentroid: nodeCluster?.metadata.centroidNode === node.id.toString()
-      });
-
-      return {
-        data: nodeData,
+      const element = {
+        data: {
+          id: node.id.toString(),
+          label: node.label,
+          degree: data.metrics.degree[node.id] || 0,
+          betweenness: data.metrics.betweenness[node.id] || 0,
+        },
+        classes: [] as string[],
         group: 'nodes' as const
       };
+
+      // Apply cluster styling
+      if (nodeCluster) {
+        element.data.clusterColor = clusterColors[nodeCluster.clusterId];
+        element.classes.push('clustered');
+
+        if (nodeCluster.metadata.centroidNode === node.id.toString()) {
+          element.classes.push('centroid');
+        }
+      }
+
+      return element;
     });
 
+    // Prepare edge elements
     const edgeElements = data.edges.map(edge => ({
       data: {
         id: `e${edge.id}`,
@@ -207,13 +206,16 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     validateGraphElements(nodeElements, edgeElements);
 
+    // Update graph elements
     cyRef.current.elements().remove();
     const elements = [...nodeElements, ...edgeElements];
     cyRef.current.add(elements);
 
+    // Apply layout
     const layout = cyRef.current.layout(layoutConfig);
     layout.run();
 
+    // Mark disconnected nodes
     cyRef.current.nodes().forEach(node => {
       if (node.degree() === 0) {
         node.addClass('disconnected');
@@ -222,7 +224,20 @@ export function GraphViewer({ data }: GraphViewerProps) {
       }
     });
 
+    // Force style application
+    cyRef.current.style(styleSheet);
+
+    // Fit the graph
     cyRef.current.fit();
+
+    // Log final state
+    console.log('Graph updated with styles:', {
+      nodes: cyRef.current.nodes().length,
+      clusteredNodes: cyRef.current.nodes('.clustered').length,
+      centroidNodes: cyRef.current.nodes('.centroid').length,
+      disconnectedNodes: cyRef.current.nodes('.disconnected').length
+    });
+
   }, [data]);
 
   return (
