@@ -1,206 +1,107 @@
 import { useEffect, useRef } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
-import type { Core, ElementDefinition } from "cytoscape";
+import type { Core, ElementDefinition, Stylesheet } from "cytoscape";
 import { type GraphData, type ClusterResult } from "@shared/schema";
 
 interface GraphViewerProps {
   data: GraphData & { clusters?: ClusterResult[] };
 }
 
-const layoutConfig = {
-  name: "cose",
-  animate: false, // Disable animation to prevent style resets
-  nodeRepulsion: 15000,
-  idealEdgeLength: 200,
-  nodeOverlap: 30,
-  padding: 50,
-  randomize: true,
-  componentSpacing: 300,
-  refresh: 30,
-  fit: true,
-  gravity: 0.3,
-  numIter: 10000,
-  initialTemp: 1000,
-  coolingFactor: 0.99,
-  minTemp: 1.0
-};
-
-// Define styles separately for better organization and reuse
-const baseNodeStyle = {
-  "background-color": "hsl(var(--muted))",
-  "label": "data(label)",
-  "color": "hsl(var(--foreground))",
-  "text-valign": "center",
-  "text-halign": "center",
-  "font-size": "14px",
-  "text-wrap": "wrap",
-  "text-max-width": "120px",
-  "width": "45px",
-  "height": "45px",
-  "border-width": "2px",
-  "border-color": "hsl(var(--border))"
-};
-
-const styleSheet = [
+const styleSheet: Stylesheet[] = [
   {
     selector: "node",
-    style: baseNodeStyle
+    style: {
+      "background-color": "#888",
+      "label": "data(label)",
+      "width": 45,
+      "height": 45,
+      "text-valign": "center",
+      "text-halign": "center"
+    }
   },
   {
     selector: "edge",
     style: {
       "width": 2,
-      "line-color": "hsl(var(--muted))",
-      "target-arrow-color": "hsl(var(--muted))",
+      "line-color": "#888",
+      "target-arrow-color": "#888",
       "target-arrow-shape": "triangle",
       "curve-style": "bezier",
-      "label": "data(label)",
-      "font-size": "12px",
-      "text-rotation": "autorotate",
-      "text-margin-y": "-10px",
-      "text-background-color": "hsl(var(--background))",
-      "text-background-opacity": 0.8,
-      "text-background-padding": "3px"
-    }
-  },
-  {
-    selector: "node.clustered",
-    style: {
-      "background-color": "data(clusterColor)",
-      "border-color": "data(clusterColor)",
-      "border-width": "3px",
-      "z-index": 10
-    }
-  },
-  {
-    selector: "node.centroid",
-    style: {
-      "border-width": "5px",
-      "border-color": "hsl(var(--primary))",
-      "width": "70px",
-      "height": "70px",
-      "z-index": 20
-    }
-  },
-  {
-    selector: "node.disconnected",
-    style: {
-      "border-color": "hsl(var(--destructive))",
-      "border-width": "3px"
+      "label": "data(label)"
     }
   }
 ];
 
-function generateClusterColors(clusters: ClusterResult[]): Record<number, string> {
-  return clusters.reduce((acc, cluster) => {
-    // Use golden ratio for better color distribution
-    const hue = (cluster.clusterId * 137.5) % 360;
-    const saturation = 70 + (cluster.clusterId * 5) % 20;
-    const lightness = 45 + (cluster.clusterId * 7) % 20;
-    acc[cluster.clusterId] = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-    return acc;
-  }, {} as Record<number, string>);
-}
+const layoutConfig = {
+  name: "grid",
+  rows: 3
+};
 
 export function GraphViewer({ data }: GraphViewerProps) {
   const cyRef = useRef<Core | null>(null);
 
   useEffect(() => {
-    if (!cyRef.current) return;
+    if (!cyRef.current) {
+      console.log('[DEBUG] Cytoscape ref not initialized');
+      return;
+    }
 
     const cy = cyRef.current;
 
-    // Generate cluster colors
-    const clusterColors = data.clusters ? generateClusterColors(data.clusters) : {};
-
-    // Create elements with cluster data
-    const nodeElements = data.nodes.map(node => {
-      const nodeCluster = data.clusters?.find(c => 
-        c.nodes.includes(node.id.toString())
-      );
-
-      const element: ElementDefinition = {
-        data: {
-          id: node.id.toString(),
-          label: node.label,
-          type: node.type,
-          degree: data.metrics.degree[node.id] || 0,
-          ...(nodeCluster && { clusterColor: clusterColors[nodeCluster.clusterId] })
-        },
-        classes: [] as string[],
-        group: 'nodes'
-      };
-
-      // Add appropriate classes
-      if (nodeCluster) {
-        element.classes.push('clustered');
-        if (nodeCluster.metadata.centroidNode === node.id.toString()) {
-          element.classes.push('centroid');
-        }
-      }
-
-      return element;
-    });
-
-    const edgeElements = data.edges.map(edge => ({
-      data: {
-        id: `e${edge.id}`,
-        source: edge.sourceId.toString(),
-        target: edge.targetId.toString(),
-        label: edge.label,
-        weight: edge.weight
-      },
-      group: 'edges'
-    }));
-
-    // Function to enforce styles
-    const enforceStyles = () => {
-      // Apply base styles
-      cy.style(styleSheet);
-
-      // Check and reapply cluster styles
-      cy.nodes().forEach(node => {
-        if (node.data('clusterColor')) {
-          node.addClass('clustered');
-        }
-        if (node.degree() === 0) {
-          node.addClass('disconnected');
-        }
+    try {
+      console.log('[DEBUG] Creating graph elements from data:', {
+        nodes: data.nodes.length,
+        edges: data.edges.length
       });
 
-      // Force style update
-      cy.style().update();
-    };
+      // Create basic elements
+      const elements: ElementDefinition[] = [
+        ...data.nodes.map(node => {
+          console.log('[DEBUG] Processing node:', node);
+          return {
+            data: {
+              id: node.id.toString(),
+              label: node.label
+            },
+            group: 'nodes'
+          };
+        }),
+        ...data.edges.map(edge => {
+          console.log('[DEBUG] Processing edge:', edge);
+          return {
+            data: {
+              id: `e${edge.id}`,
+              source: edge.sourceId.toString(),
+              target: edge.targetId.toString(),
+              label: edge.label
+            },
+            group: 'edges'
+          };
+        })
+      ];
 
-    // Clear existing elements
-    cy.elements().remove();
+      console.log('[DEBUG] Created elements:', elements);
 
-    // Add new elements
-    cy.add([...nodeElements, ...edgeElements]);
+      // Clear and add elements
+      cy.elements().remove();
+      cy.add(elements);
 
-    // Initial style application
-    enforceStyles();
+      // Apply layout
+      const layout = cy.layout(layoutConfig);
+      layout.run();
 
-    // Run layout with style preservation
-    const layout = cy.layout({
-      ...layoutConfig,
-      fit: true,
-      stop: () => {
-        // Reapply styles after layout
-        enforceStyles();
-        cy.fit();
-      }
-    });
-
-    layout.run();
-
-    return () => {
-      layout.stop();
-    };
+      console.log('[DEBUG] Graph rendered successfully');
+    } catch (error) {
+      console.error('[DEBUG] Error rendering graph:', error);
+    }
   }, [data]);
 
+  if (!data.nodes.length) {
+    return <div className="w-full h-full border p-4">No graph data available</div>;
+  }
+
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full border">
       <CytoscapeComponent
         elements={[]}
         stylesheet={styleSheet}

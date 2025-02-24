@@ -1,4 +1,3 @@
-// Update the test script configuration to use vitest
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -17,7 +16,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Broadcast graph updates to all connected clients
   function broadcastUpdate(data: any) {
-    console.log('Broadcasting graph update:', {
+    console.log('[DEBUG] Broadcasting graph update:', {
       nodes: data.nodes.length,
       edges: data.edges.length,
       connectedClients: wss.clients.size
@@ -26,27 +25,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(data));
-        console.log('Sent update to client');
+        console.log('[DEBUG] Sent update to client');
       }
     });
   }
 
   // WebSocket connection handling
   wss.on('connection', (ws) => {
-    console.log('Client connected');
+    console.log('[DEBUG] Client connected');
+
+    // Send initial graph state
+    storage.getFullGraph().then(graph => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(graph));
+        console.log('[DEBUG] Sent initial graph state to client');
+      }
+    });
 
     ws.on('close', () => {
-      console.log('Client disconnected');
+      console.log('[DEBUG] Client disconnected');
+    });
+
+    ws.on('error', (error) => {
+      console.error('[DEBUG] WebSocket error:', error);
     });
   });
 
   // API Routes
   app.get('/api/graph', async (_req, res) => {
-    const graph = await storage.getFullGraph();
-    res.json(graph);
+    try {
+      const graph = await storage.getFullGraph();
+      console.log('[DEBUG] Sending graph:', {
+        nodes: graph.nodes.length,
+        edges: graph.edges.length
+      });
+      res.json(graph);
+    } catch (error) {
+      console.error('[DEBUG] Error fetching graph:', error);
+      res.status(500).json({ error: "Failed to fetch graph" });
+    }
   });
 
-  // Update the existing expand endpoint to use iterative expansion
   app.post('/api/graph/expand', async (req, res) => {
     const schema = z.object({ prompt: z.string() });
     const result = schema.safeParse(req.body);
@@ -57,11 +76,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const updatedGraph = await graphManager.startIterativeExpansion(result.data.prompt);
-      console.log('Graph expansion complete, broadcasting update');
+      console.log('[DEBUG] Graph expansion complete, broadcasting update');
       broadcastUpdate(updatedGraph);
       res.json(updatedGraph);
     } catch (error) {
-      console.error('Failed to expand graph:', error);
+      console.error('[DEBUG] Failed to expand graph:', error);
       res.status(500).json({ error: "Failed to expand graph" });
     }
   });
