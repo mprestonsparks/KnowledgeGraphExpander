@@ -18,7 +18,6 @@ const layoutConfig = {
   componentSpacing: 300,
   refresh: 30,
   fit: true,
-  boundingBox: undefined,
   gravity: 0.3,
   numIter: 10000,
   initialTemp: 1000,
@@ -26,8 +25,9 @@ const layoutConfig = {
   minTemp: 1.0
 };
 
+// Define styles separately for better organization and reuse
 const baseNodeStyle = {
-  "background-color": "hsl(var(--primary))",
+  "background-color": "hsl(var(--muted))",
   "label": "data(label)",
   "color": "hsl(var(--foreground))",
   "text-valign": "center",
@@ -45,15 +45,6 @@ const styleSheet = [
   {
     selector: "node",
     style: baseNodeStyle
-  },
-  {
-    selector: "node[degree >= 3]",
-    style: {
-      "width": "60px",
-      "height": "60px",
-      "border-width": "3px",
-      "font-size": "16px"
-    }
   },
   {
     selector: "edge",
@@ -100,23 +91,15 @@ const styleSheet = [
   }
 ];
 
-function validateGraphElements(nodes: ElementDefinition[], edges: ElementDefinition[]): void {
-  const nodeIds = new Set(nodes.map(n => n.data.id));
-  const connectedNodes = new Set<string>();
-
-  edges.forEach(edge => {
-    if (edge.data.source && edge.data.target) {
-      connectedNodes.add(edge.data.source);
-      connectedNodes.add(edge.data.target);
-    }
-  });
-
-  const disconnectedNodes = Array.from(nodeIds).filter(id => !connectedNodes.has(id));
-  console.log('Graph validation:', {
-    totalNodes: nodes.length,
-    totalEdges: edges.length,
-    disconnectedCount: disconnectedNodes.length
-  });
+function generateClusterColors(clusters: ClusterResult[]): Record<number, string> {
+  return clusters.reduce((acc, cluster) => {
+    // Use golden ratio for better color distribution
+    const hue = (cluster.clusterId * 137.5) % 360;
+    const saturation = 70 + (cluster.clusterId * 5) % 20;
+    const lightness = 45 + (cluster.clusterId * 7) % 20;
+    acc[cluster.clusterId] = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    return acc;
+  }, {} as Record<number, string>);
 }
 
 export function GraphViewer({ data }: GraphViewerProps) {
@@ -127,24 +110,12 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     const cy = cyRef.current;
 
-    console.log('Starting graph update with data:', {
-      nodes: data.nodes.length,
-      edges: data.edges.length,
-      clusters: data.clusters?.length || 0
-    });
-
     // Generate cluster colors
-    const clusterColors = data.clusters?.reduce((acc, cluster) => {
-      const hue = (cluster.clusterId * 137.5) % 360;
-      const saturation = 70 + (cluster.clusterId * 5) % 20;
-      const lightness = 45 + (cluster.clusterId * 7) % 20;
-      acc[cluster.clusterId] = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-      return acc;
-    }, {} as Record<number, string>) || {};
+    const clusterColors = data.clusters ? generateClusterColors(data.clusters) : {};
 
     // Create elements with cluster data
     const nodeElements = data.nodes.map(node => {
-      const nodeCluster = data.clusters?.find(c =>
+      const nodeCluster = data.clusters?.find(c => 
         c.nodes.includes(node.id.toString())
       );
 
@@ -152,17 +123,17 @@ export function GraphViewer({ data }: GraphViewerProps) {
         data: {
           id: node.id.toString(),
           label: node.label,
+          type: node.type,
           degree: data.metrics.degree[node.id] || 0,
-          betweenness: data.metrics.betweenness[node.id] || 0,
+          ...(nodeCluster && { clusterColor: clusterColors[nodeCluster.clusterId] })
         },
         classes: [] as string[],
         group: 'nodes'
       };
 
+      // Add appropriate classes
       if (nodeCluster) {
-        element.data.clusterColor = clusterColors[nodeCluster.clusterId];
         element.classes.push('clustered');
-
         if (nodeCluster.metadata.centroidNode === node.id.toString()) {
           element.classes.push('centroid');
         }
@@ -179,19 +150,16 @@ export function GraphViewer({ data }: GraphViewerProps) {
         label: edge.label,
         weight: edge.weight
       },
-      group: 'edges' as const
+      group: 'edges'
     }));
-
-    // Clear and add new elements
-    cy.elements().remove();
-    cy.add([...nodeElements, ...edgeElements]);
 
     // Function to enforce styles
     const enforceStyles = () => {
+      // Apply base styles
       cy.style(styleSheet);
 
+      // Check and reapply cluster styles
       cy.nodes().forEach(node => {
-        // Re-add classes to ensure style application
         if (node.data('clusterColor')) {
           node.addClass('clustered');
         }
@@ -200,18 +168,25 @@ export function GraphViewer({ data }: GraphViewerProps) {
         }
       });
 
-      // Force style refresh
+      // Force style update
       cy.style().update();
     };
 
-    // Apply initial styles
+    // Clear existing elements
+    cy.elements().remove();
+
+    // Add new elements
+    cy.add([...nodeElements, ...edgeElements]);
+
+    // Initial style application
     enforceStyles();
 
-    // Create and run layout
+    // Run layout with style preservation
     const layout = cy.layout({
       ...layoutConfig,
+      fit: true,
       stop: () => {
-        // Ensure styles persist after layout
+        // Reapply styles after layout
         enforceStyles();
         cy.fit();
       }
@@ -219,7 +194,6 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     layout.run();
 
-    // Clean up
     return () => {
       layout.stop();
     };
