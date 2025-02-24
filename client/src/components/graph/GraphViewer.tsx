@@ -64,7 +64,9 @@ const styleSheet = [
       "text-margin-y": "-10px",
       "text-background-color": "hsl(var(--background))",
       "text-background-opacity": 0.8,
-      "text-background-padding": "3px"
+      "text-background-padding": "3px",
+      "opacity": 1, 
+      "z-index": 1 
     }
   }
 ];
@@ -75,6 +77,11 @@ export function GraphViewer({ data }: GraphViewerProps) {
   useEffect(() => {
     if (!cyRef.current) return;
 
+    console.log('Updating graph with:', {
+      nodes: data.nodes.length,
+      edges: data.edges.length
+    });
+
     const elements: ElementDefinition[] = [
       ...data.nodes.map(node => ({
         data: { 
@@ -82,7 +89,8 @@ export function GraphViewer({ data }: GraphViewerProps) {
           label: node.label,
           degree: data.metrics.degree[node.id] || 0,
           betweenness: data.metrics.betweenness[node.id] || 0
-        }
+        },
+        group: 'nodes'
       })),
       ...data.edges.map(edge => ({
         data: {
@@ -91,9 +99,16 @@ export function GraphViewer({ data }: GraphViewerProps) {
           target: edge.targetId.toString(),
           label: edge.label,
           weight: edge.weight
-        }
+        },
+        group: 'edges'
       }))
     ];
+
+    console.log('Generated elements:', {
+      total: elements.length,
+      nodes: elements.filter(e => e.group === 'nodes').length,
+      edges: elements.filter(e => e.group === 'edges').length
+    });
 
     cyRef.current.elements().remove();
     cyRef.current.add(elements);
@@ -104,7 +119,7 @@ export function GraphViewer({ data }: GraphViewerProps) {
   return (
     <div className="w-full h-full">
       <CytoscapeComponent
-        elements={[]} // Initial empty state, elements added in useEffect
+        elements={[]} 
         stylesheet={styleSheet}
         layout={layoutConfig}
         cy={(cy) => {
