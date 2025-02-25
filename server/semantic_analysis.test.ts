@@ -1,13 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SemanticAnalysisService } from './semantic_analysis';
 import type { Node } from '@shared/schema';
+import Anthropic from '@anthropic-ai/sdk';
 
 // Mock Anthropic client
-vi.mock('@anthropic-ai/sdk', () => ({
-  default: vi.fn().mockImplementation(() => ({
-    messages: {
-      create: vi.fn().mockResolvedValue({
+vi.mock('@anthropic-ai/sdk', () => {
+  const mockCreate = vi.fn().mockImplementation(async ({ messages }) => {
+    if (messages[0].content.includes('Given these knowledge graph nodes')) {
+      // For relationship suggestions
+      return {
         content: [{
+          type: 'text',
+          text: JSON.stringify([
+            { sourceId: 1, targetId: 2, label: "test_relation", weight: 1 }
+          ])
+        }]
+      };
+    } else {
+      // For content analysis
+      return {
+        content: [{
+          type: 'text',
           text: JSON.stringify({
             nodes: [
               { label: "Test Node", type: "concept", metadata: { description: "A test node" } }
@@ -18,10 +31,16 @@ vi.mock('@anthropic-ai/sdk', () => ({
             reasoning: "Test analysis"
           })
         }]
-      })
+      };
     }
-  }))
-}));
+  });
+
+  return {
+    default: vi.fn().mockImplementation(() => ({
+      messages: { create: mockCreate }
+    }))
+  };
+});
 
 describe('SemanticAnalysisService', () => {
   let service: SemanticAnalysisService;
@@ -57,6 +76,20 @@ describe('SemanticAnalysisService', () => {
       expect(result).toEqual([
         { id: 1, sourceId: 1, targetId: 2, label: "test_relation", weight: 1 }
       ]);
+    });
+
+    it('should handle API errors gracefully', async () => {
+      // Suppress console error output during test
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Override the mock for this test only
+      const mockCreate = vi.fn().mockRejectedValueOnce(new Error('API Error'));
+      vi.mocked(Anthropic).mockImplementationOnce(() => ({
+        messages: { create: mockCreate }
+      }));
+
+      await expect(service.suggestRelationships(mockNodes))
+        .rejects.toThrow('Failed to suggest relationships');
     });
   });
 });
