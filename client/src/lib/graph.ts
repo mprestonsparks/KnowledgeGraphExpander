@@ -8,6 +8,12 @@ export async function getGraphData(): Promise<GraphData> {
   console.log('Received graph data:', {
     nodes: data.nodes.length,
     edges: data.edges.length,
+    edgeDetails: data.edges.map(e => ({
+      id: e.id,
+      source: e.sourceId,
+      target: e.targetId,
+      label: e.label
+    })),
     clusters: data.clusters?.length,
     clusterDetails: data.clusters?.map((c: any) => ({
       id: c.clusterId,
@@ -30,6 +36,12 @@ export async function reconnectNodes(): Promise<GraphData> {
   console.log('Received reconnected graph data:', {
     nodes: data.nodes.length,
     edges: data.edges.length,
+    edgeDetails: data.edges.map(e => ({
+      id: e.id,
+      source: e.sourceId,
+      target: e.targetId,
+      label: e.label
+    })),
     newEdges: data.edges.length - (window as any).previousEdgeCount || 0
   });
   (window as any).previousEdgeCount = data.edges.length;
@@ -42,6 +54,13 @@ export async function reapplyClustering(): Promise<GraphData> {
   const data = await response.json();
   console.log('Received updated cluster data:', {
     clusters: data.clusters?.length,
+    edges: data.edges.length,
+    edgeDetails: data.edges.map(e => ({
+      id: e.id,
+      source: e.sourceId,
+      target: e.targetId,
+      label: e.label
+    })),
     clusterDetails: data.clusters?.map((c: any) => ({
       id: c.clusterId,
       nodes: c.nodes.length,

@@ -45,7 +45,7 @@ const styleSheet = [
   {
     selector: "edge",
     style: {
-      "width": 1.5,
+      "width": 2,
       "line-color": "hsl(var(--muted))",
       "target-arrow-color": "hsl(var(--muted))",
       "target-arrow-shape": "triangle",
@@ -57,7 +57,8 @@ const styleSheet = [
       "text-background-color": "hsl(var(--background))",
       "text-background-opacity": 0.8,
       "text-background-padding": "2px",
-      "z-index": 0
+      "z-index": 0,
+      "opacity": 1
     }
   },
   {
@@ -109,7 +110,7 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     const cy = cyRef.current;
 
-    console.log('GraphViewer: Processing data', {
+    console.log('GraphViewer: Initializing with data:', {
       nodes: data.nodes.length,
       edges: data.edges.length,
       clusters: data.clusters?.length || 0
@@ -118,15 +119,17 @@ export function GraphViewer({ data }: GraphViewerProps) {
     // Generate cluster colors
     const clusterColors = data.clusters ? calculateClusterColors(data.clusters) : {};
 
-    // Prepare nodes
+    // Map to track node elements by ID for edge creation
+    const nodeMap = new Map<number, ElementDefinition>();
+
+    // Create node elements
     const nodeElements = data.nodes.map(node => {
-      const nodeCluster = data.clusters?.find(c => 
-        c.nodes.includes(node.id.toString())
-      );
+      const nodeId = node.id.toString();
+      const nodeCluster = data.clusters?.find(c => c.nodes.includes(nodeId));
 
       const element: ElementDefinition = {
         data: {
-          id: node.id.toString(),
+          id: nodeId,
           label: node.label,
           type: node.type,
           degree: data.metrics.degree[node.id] || 0,
@@ -135,60 +138,71 @@ export function GraphViewer({ data }: GraphViewerProps) {
             clusterId: nodeCluster.clusterId
           })
         },
-        classes: [],
-        group: 'nodes'
+        classes: nodeCluster ? ['clustered'] : []
       };
 
-      if (nodeCluster) {
-        element.classes.push('clustered');
-        if (nodeCluster.metadata.centroidNode === node.id.toString()) {
-          element.classes.push('centroid');
-        }
+      if (nodeCluster?.metadata.centroidNode === nodeId) {
+        element.classes.push('centroid');
       }
 
       if (data.metrics.degree[node.id] === 0) {
         element.classes.push('disconnected');
       }
 
+      nodeMap.set(node.id, element);
       return element;
     });
 
-    // Prepare edges (preserve all edge data)
-    const edgeElements = data.edges.map(edge => ({
-      data: {
-        id: `e${edge.id}`,
-        source: edge.sourceId.toString(),
-        target: edge.targetId.toString(),
-        label: edge.label,
-        weight: edge.weight //Added weight to preserve edge data
-      },
-      group: 'edges'
-    }));
+    // Create edge elements only between existing nodes
+    const edgeElements = data.edges.map(edge => {
+      const sourceId = edge.sourceId.toString();
+      const targetId = edge.targetId.toString();
 
-    // Clear existing elements
+      // Only create edge if both nodes exist
+      if (nodeMap.has(edge.sourceId) && nodeMap.has(edge.targetId)) {
+        return {
+          data: {
+            id: `e${edge.id}`,
+            source: sourceId,
+            target: targetId,
+            label: edge.label,
+            weight: edge.weight
+          },
+          classes: []
+        };
+      }
+      return null;
+    }).filter((edge): edge is ElementDefinition => edge !== null);
+
+    // Log element creation details
+    console.log('Creating graph elements:', {
+      nodes: nodeElements.length,
+      edges: edgeElements.length,
+      edgeDetails: edgeElements.map(e => ({
+        id: e.data.id,
+        source: e.data.source,
+        target: e.data.target,
+        label: e.data.label
+      }))
+    });
+
+    // Clear and add elements
     cy.elements().remove();
-
-    // Add all elements at once
     cy.add([...nodeElements, ...edgeElements]);
 
-    // Apply styles
+    // Apply styles and layout
     cy.style(styleSheet);
-
-    // Run layout
     const layout = cy.layout(layoutConfig);
 
     layout.one('layoutstop', () => {
-      // Verify and log element counts
-      console.log('Graph rendered:', {
+      console.log('Graph layout complete. Verifying elements:', {
         nodes: cy.nodes().length,
         edges: cy.edges().length,
-        clusteredNodes: cy.nodes('.clustered').length,
-        centroidNodes: cy.nodes('.centroid').length,
-        disconnectedNodes: cy.nodes('.disconnected').length
+        clusters: cy.nodes('.clustered').length,
+        centroids: cy.nodes('.centroid').length,
+        disconnected: cy.nodes('.disconnected').length
       });
 
-      // Ensure styles are applied
-      cy.style().update();
       cy.fit();
     });
 

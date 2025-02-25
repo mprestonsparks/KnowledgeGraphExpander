@@ -283,9 +283,22 @@ export class GraphManager {
   private calculateMetrics(): GraphDataWithClusters {
     console.log('Starting metrics calculation');
 
-    // Store initial edge count for verification
+    // Store initial edge count and data for verification
     const initialEdgeCount = this.graph.size;
-    console.log('Initial edge count:', initialEdgeCount);
+    const initialEdges = Array.from(this.graph.edges()).map(edgeId => ({
+      ...this.graph.getEdgeAttributes(edgeId),
+      id: parseInt(edgeId.split('-')[0])
+    }));
+
+    console.log('Initial graph state:', {
+      edgeCount: initialEdgeCount,
+      edgeDetails: initialEdges.map(e => ({
+        id: e.id,
+        source: e.sourceId,
+        target: e.targetId,
+        label: e.label
+      }))
+    });
 
     const betweenness = centrality.betweenness(this.graph);
     let eigenvector: Record<string, number> = {};
@@ -305,48 +318,48 @@ export class GraphManager {
       degree[id] = this.graph.degree(nodeId);
     });
 
-    // Get current edges before clustering
-    const currentEdges = Array.from(this.graph.edges()).map(edgeId => ({
-      ...this.graph.getEdgeAttributes(edgeId),
-      id: parseInt(edgeId.split('-')[0])
-    })) as Edge[];
-
+    // Perform clustering without modifying edges
     const clusters = this.semanticClustering.clusterNodes();
 
-    console.log('Cluster calculation results:', {
-      clusterCount: clusters.length,
-      clusterDetails: clusters.map(c => ({
-        id: c.clusterId,
-        nodeCount: c.nodes.length,
-        theme: c.metadata.semanticTheme,
-        coherence: c.metadata.coherenceScore,
-        centroid: c.metadata.centroidNode
-      }))
-    });
-
+    // Get current nodes
     const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
       ...this.graph.getNodeAttributes(nodeId),
       id: parseInt(nodeId)
     })) as Node[];
 
-    // Verify edge preservation
     console.log('Edge preservation check:', {
       initialEdgeCount,
-      finalEdgeCount: currentEdges.length,
-      edgesMatch: initialEdgeCount === currentEdges.length
+      currentEdgeCount: this.graph.size,
+      edgesMatch: initialEdgeCount === this.graph.size
     });
 
-    if (initialEdgeCount !== currentEdges.length) {
-      console.error('Edge count mismatch detected during metrics calculation');
+    if (initialEdgeCount !== this.graph.size) {
+      console.error('Edge count mismatch detected - restoring edges');
+      // Restore edges if they were affected
+      initialEdges.forEach(edge => {
+        const sourceId = edge.sourceId.toString();
+        const targetId = edge.targetId.toString();
+        if (!this.graph.hasEdge(sourceId, targetId)) {
+          this.graph.addEdge(sourceId, targetId, edge);
+        }
+      });
     }
 
-    console.log('Graph data prepared:', {
+    // Get final edge state after potential restoration
+    const currentEdges = Array.from(this.graph.edges()).map(edgeId => ({
+      ...this.graph.getEdgeAttributes(edgeId),
+      id: parseInt(edgeId.split('-')[0])
+    })) as Edge[];
+
+    console.log('Final graph state:', {
       nodes: currentNodes.length,
       edges: currentEdges.length,
-      metrics: {
-        degreeRange: [Math.min(...Object.values(degree)), Math.max(...Object.values(degree))],
-        betweennessRange: [Math.min(...Object.values(betweenness)), Math.max(...Object.values(betweenness))]
-      }
+      edgeDetails: currentEdges.map(e => ({
+        id: e.id,
+        source: e.sourceId,
+        target: e.targetId,
+        label: e.label
+      }))
     });
 
     return {
