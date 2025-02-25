@@ -87,35 +87,59 @@ export class GraphManager {
     const validNodes: InsertNode[] = [];
     const validEdges: InsertEdge[] = [];
 
-    // First pass: collect all proposed nodes and check for valid data
-    nodes.forEach(node => {
-      if (node && node.id && node.label) {
-        nodeLabels.set(node.id, node.label);
-        console.log('Processing node:', {
-          id: node.id,
-          label: node.label,
-          type: node.type,
-          metadata: node.metadata
-        });
-      } else {
-        console.warn('Invalid node data:', node);
+    // First pass: collect all proposed nodes and generate IDs if needed
+    const lastNodeId = Math.max(0, ...Array.from(this.graph.nodes()).map(id => parseInt(id)));
+    nodes.forEach((node, index) => {
+      if (!node) {
+        console.warn('Null node data received');
+        return;
       }
+
+      // Generate ID for new nodes if not provided
+      const nodeId = node.id || (lastNodeId + index + 1);
+      const nodeLabel = node.label || `Node ${nodeId}`;
+
+      nodeLabels.set(nodeId, nodeLabel);
+      validNodes.push({
+        id: nodeId,
+        label: nodeLabel,
+        type: node.type || 'concept',
+        metadata: node.metadata || {}
+      });
+
+      console.log('Processing node:', {
+        id: nodeId,
+        label: nodeLabel,
+        type: node.type || 'concept'
+      });
     });
 
     // Second pass: validate edges and track connected nodes
     edges.forEach(edge => {
-      if (!edge || !edge.sourceId || !edge.targetId) {
-        console.warn('Invalid edge data:', edge);
+      if (!edge) {
+        console.warn('Null edge data received');
         return;
       }
 
-      const sourceId = edge.sourceId.toString();
-      const targetId = edge.targetId.toString();
-      const sourceExists = this.graph.hasNode(sourceId) || nodeLabels.has(edge.sourceId);
-      const targetExists = this.graph.hasNode(targetId) || nodeLabels.has(edge.targetId);
+      const sourceId = (edge.sourceId || validNodes[0]?.id)?.toString();
+      const targetId = (edge.targetId || validNodes[1]?.id)?.toString();
+
+      if (!sourceId || !targetId) {
+        console.warn('Edge missing source or target:', edge);
+        return;
+      }
+
+      const sourceExists = this.graph.hasNode(sourceId) || validNodes.some(n => n.id.toString() === sourceId);
+      const targetExists = this.graph.hasNode(targetId) || validNodes.some(n => n.id.toString() === targetId);
 
       if (sourceExists && targetExists) {
-        validEdges.push(edge);
+        validEdges.push({
+          sourceId: parseInt(sourceId),
+          targetId: parseInt(targetId),
+          label: edge.label || 'related_to',
+          weight: edge.weight || 1
+        });
+
         connectedNodes.add(sourceId);
         connectedNodes.add(targetId);
 
@@ -130,59 +154,22 @@ export class GraphManager {
         edgeConnections.get(targetId)!.add(sourceId);
 
         console.log('Valid edge found:', {
-          source: edge.sourceId,
-          sourceLabel: nodeLabels.get(edge.sourceId) || 'existing node',
-          target: edge.targetId,
-          targetLabel: nodeLabels.get(edge.targetId) || 'existing node',
-          label: edge.label
-        });
-      } else {
-        console.warn('Invalid edge - missing nodes:', {
-          edge,
-          sourceExists,
-          targetExists,
-          sourceLabel: nodeLabels.get(edge.sourceId),
-          targetLabel: nodeLabels.get(edge.targetId)
+          source: sourceId,
+          sourceLabel: nodeLabels.get(parseInt(sourceId)) || 'existing node',
+          target: targetId,
+          targetLabel: nodeLabels.get(parseInt(targetId)) || 'existing node',
+          label: edge.label || 'related_to'
         });
       }
     });
 
-    // Third pass: only accept nodes that have connections or existing edges
-    nodes.forEach(node => {
-      if (!node || !node.id) {
-        console.warn('Skipping invalid node:', node);
-        return;
-      }
-
-      const nodeId = node.id.toString();
-      const hasNewConnections = connectedNodes.has(nodeId);
-      const existingConnections = this.graph.hasNode(nodeId) ? this.graph.degree(nodeId) : 0;
-
-      if (hasNewConnections || existingConnections > 0) {
-        validNodes.push(node);
-        console.log('Accepted connected node:', {
-          id: node.id,
-          label: node.label,
-          newConnections: edgeConnections.get(nodeId)?.size || 0,
-          existingConnections
-        });
-      } else {
-        console.warn('Rejecting disconnected node:', {
-          id: node.id,
-          label: node.label,
-          reason: 'No valid connections found'
-        });
-      }
-    });
-
-    const isValid = validNodes.length > 0 && validEdges.length > 0;
+    const isValid = validNodes.length > 0 || validEdges.length > 0;
     console.log('Expansion validation results:', {
       proposedNodes: nodes.length,
       proposedEdges: edges.length,
       validNodes: validNodes.length,
       validEdges: validEdges.length,
-      isValid,
-      disconnectedNodesRejected: nodes.length - validNodes.length
+      isValid
     });
 
     return {
