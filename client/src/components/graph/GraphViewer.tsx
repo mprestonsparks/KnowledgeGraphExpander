@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import type { Core, ElementDefinition } from "cytoscape";
 import { type GraphData, type ClusterResult } from "@shared/schema";
+import { Button } from "@/components/ui/button";
+import { RefreshCcw } from "lucide-react";
 
 interface GraphViewerProps {
   data: GraphData & { clusters?: ClusterResult[] };
@@ -57,8 +59,7 @@ const styleSheet = [
       "text-background-color": "hsl(var(--background))",
       "text-background-opacity": 0.8,
       "text-background-padding": "2px",
-      "z-index": 0,
-      "opacity": 1
+      "z-index": 0
     }
   },
   {
@@ -105,24 +106,37 @@ function calculateClusterColors(clusters: ClusterResult[]): Record<number, strin
 export function GraphViewer({ data }: GraphViewerProps) {
   const cyRef = useRef<Core | null>(null);
 
-  useEffect(() => {
-    if (!cyRef.current || !data?.nodes?.length) return;
+  const refreshGraph = () => {
+    if (!cyRef.current) {
+      console.warn('Cytoscape instance not available');
+      return;
+    }
+
+    if (!data?.nodes?.length) {
+      console.warn('No nodes available in data');
+      return;
+    }
 
     const cy = cyRef.current;
 
     // Log initial state for debugging
-    console.log('Graph data update received:', {
-      nodes: data.nodes.map(n => ({ id: n.id, label: n.label })),
-      edges: data.edges?.map(e => ({ id: e.id, source: e.sourceId, target: e.targetId, label: e.label })) || []
+    console.log('Graph refresh triggered:', {
+      totalNodes: data.nodes.length,
+      totalEdges: data.edges?.length || 0,
+      nodeDetails: data.nodes.map(n => ({
+        id: n.id,
+        label: n.label,
+        type: n.type
+      }))
     });
 
-    // Clear existing elements before adding new ones
+    // Clear existing elements
     cy.elements().remove();
 
     // Generate cluster colors
     const clusterColors = data.clusters ? calculateClusterColors(data.clusters) : {};
 
-    // Create node elements with proper data attributes
+    // Create node elements
     const nodeElements: ElementDefinition[] = data.nodes.map(node => {
       const nodeId = node.id.toString();
       const nodeCluster = data.clusters?.find(c => c.nodes.includes(nodeId));
@@ -133,81 +147,86 @@ export function GraphViewer({ data }: GraphViewerProps) {
           id: nodeId,
           label: node.label || `Node ${nodeId}`,
           type: node.type || 'concept',
-          degree: data.metrics?.degree?.[node.id] || 0,
           ...(nodeCluster && {
             clusterColor: clusterColors[nodeCluster.clusterId],
             clusterId: nodeCluster.clusterId
           })
         },
-        classes: nodeCluster ? ['clustered'] : []
+        classes: []
       };
 
-      // Add special classes based on node properties
-      if (nodeCluster?.metadata.centroidNode === nodeId) {
-        element.classes = [...(element.classes || []), 'centroid'];
+      // Add cluster class if node is part of a cluster
+      if (nodeCluster) {
+        element.classes.push('clustered');
       }
 
-      if ((data.metrics?.degree?.[node.id] || 0) === 0) {
-        element.classes = [...(element.classes || []), 'disconnected'];
+      // Add centroid class if node is a cluster centroid
+      if (nodeCluster?.metadata.centroidNode === nodeId) {
+        element.classes.push('centroid');
+      }
+
+      // Add disconnected class if node has no edges
+      const degree = data.metrics?.degree?.[node.id] || 0;
+      if (degree === 0) {
+        element.classes.push('disconnected');
       }
 
       return element;
     });
 
-    // Create edge elements with proper data attributes
-    const edgeElements: ElementDefinition[] = (data.edges || []).map(edge => {
-      if (!edge.sourceId || !edge.targetId) {
-        console.warn('Invalid edge data:', edge);
-        return null;
+    // Create edge elements
+    const edgeElements: ElementDefinition[] = (data.edges || []).map(edge => ({
+      group: 'edges',
+      data: {
+        id: `e${edge.id}`,
+        source: edge.sourceId.toString(),
+        target: edge.targetId.toString(),
+        label: edge.label || 'related_to',
+        weight: edge.weight || 1
       }
+    }));
 
-      const sourceId = edge.sourceId.toString();
-      const targetId = edge.targetId.toString();
-
-      // Ensure we have a valid edge ID
-      const edgeId = `e${edge.id || Math.floor(Math.random() * 1000000)}`;
-
-      return {
-        group: 'edges',
-        data: {
-          id: edgeId,
-          source: sourceId,
-          target: targetId,
-          label: edge.label || 'related_to',
-          weight: edge.weight || 1
-        }
-      };
-    }).filter(Boolean) as ElementDefinition[];
-
-    // Add elements to the graph
+    // Add all elements at once
     cy.add([...nodeElements, ...edgeElements]);
 
-    // Apply styles and layout
-    cy.style(styleSheet);
+    // Apply layout
     const layout = cy.layout(layoutConfig);
 
+    // Log final state after layout
     layout.one('layoutstop', () => {
       console.log('Layout complete:', {
-        nodes: cy.nodes().length,
-        edges: cy.edges().length,
-        clusters: cy.nodes('.clustered').length,
-        centroids: cy.nodes('.centroid').length,
-        disconnected: cy.nodes('.disconnected').length
+        nodesInGraph: cy.nodes().length,
+        edgesInGraph: cy.edges().length,
+        clusteredNodes: cy.nodes('.clustered').length,
+        centroidNodes: cy.nodes('.centroid').length,
+        disconnectedNodes: cy.nodes('.disconnected').length
       });
       cy.fit();
     });
 
     layout.run();
+  };
 
-    return () => {
-      layout.stop();
-    };
-  }, [data]); // Only re-run when data changes
+  // Refresh graph when data changes
+  useEffect(() => {
+    refreshGraph();
+  }, [data]);
 
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full relative">
+      <div className="absolute top-4 right-4 z-10">
+        <Button
+          onClick={refreshGraph}
+          size="sm"
+          variant="outline"
+          className="gap-2"
+        >
+          <RefreshCcw className="w-4 h-4" />
+          Refresh Graph
+        </Button>
+      </div>
       <CytoscapeComponent
-        elements={[]} // Elements will be added in useEffect
+        elements={[]}
         stylesheet={styleSheet}
         layout={layoutConfig}
         cy={(cy) => {
