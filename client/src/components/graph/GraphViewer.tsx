@@ -110,9 +110,15 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     const cy = cyRef.current;
 
-    console.log('GraphViewer: Initializing with data:', {
-      nodes: data.nodes.length,
-      edges: data.edges.length,
+    // Log initial state
+    console.log('Graph data received:', {
+      nodes: data.nodes.map(n => ({ id: n.id, label: n.label })),
+      edges: data.edges.map(e => ({
+        id: e.id,
+        source: e.sourceId,
+        target: e.targetId,
+        label: e.label
+      })),
       clusters: data.clusters?.length || 0
     });
 
@@ -150,16 +156,33 @@ export function GraphViewer({ data }: GraphViewerProps) {
       }
 
       nodeMap.set(node.id, element);
+      console.log('Created node element:', {
+        id: nodeId,
+        label: node.label,
+        classes: element.classes
+      });
       return element;
     });
 
-    // Create edge elements only between existing nodes
+    // Create edge elements
     const edgeElements = data.edges.map(edge => {
       const sourceId = edge.sourceId.toString();
       const targetId = edge.targetId.toString();
 
-      // Only create edge if both nodes exist
-      if (nodeMap.has(edge.sourceId) && nodeMap.has(edge.targetId)) {
+      // Verify node existence
+      const sourceExists = nodeMap.has(edge.sourceId);
+      const targetExists = nodeMap.has(edge.targetId);
+
+      console.log('Processing edge:', {
+        id: edge.id,
+        source: sourceId,
+        target: targetId,
+        sourceExists,
+        targetExists,
+        label: edge.label
+      });
+
+      if (sourceExists && targetExists) {
         return {
           data: {
             id: `e${edge.id}`,
@@ -171,11 +194,21 @@ export function GraphViewer({ data }: GraphViewerProps) {
           classes: []
         };
       }
+      console.warn('Skipping edge due to missing nodes:', {
+        edge,
+        sourceExists,
+        targetExists
+      });
       return null;
     }).filter((edge): edge is ElementDefinition => edge !== null);
 
-    // Log element creation details
-    console.log('Creating graph elements:', {
+    // Clear existing elements
+    cy.elements().remove();
+
+    // Add elements and verify
+    const elementsToAdd = [...nodeElements, ...edgeElements];
+    console.log('Adding elements to cytoscape:', {
+      totalElements: elementsToAdd.length,
       nodes: nodeElements.length,
       edges: edgeElements.length,
       edgeDetails: edgeElements.map(e => ({
@@ -186,16 +219,21 @@ export function GraphViewer({ data }: GraphViewerProps) {
       }))
     });
 
-    // Clear and add elements
-    cy.elements().remove();
-    cy.add([...nodeElements, ...edgeElements]);
+    cy.add(elementsToAdd);
+
+    // Verify elements were added
+    console.log('Elements in cytoscape after adding:', {
+      nodes: cy.nodes().length,
+      edges: cy.edges().length,
+      edgeIds: cy.edges().map(e => e.id()).toArray()
+    });
 
     // Apply styles and layout
     cy.style(styleSheet);
     const layout = cy.layout(layoutConfig);
 
     layout.one('layoutstop', () => {
-      console.log('Graph layout complete. Verifying elements:', {
+      console.log('Layout complete. Final element counts:', {
         nodes: cy.nodes().length,
         edges: cy.edges().length,
         clusters: cy.nodes('.clustered').length,
