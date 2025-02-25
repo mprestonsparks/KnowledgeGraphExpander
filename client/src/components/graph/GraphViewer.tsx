@@ -110,21 +110,19 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     const cy = cyRef.current;
 
-    // Log initial state
-    console.log('Graph data received:', {
+    // Log initial state for debugging
+    console.log('Graph data update received:', {
       nodes: data.nodes.map(n => ({ id: n.id, label: n.label })),
-      edges: data.edges?.map(e => ({
-        id: e.id,
-        source: e.sourceId,
-        target: e.targetId,
-        label: e.label
-      })) || []
+      edges: data.edges?.map(e => ({ id: e.id, source: e.sourceId, target: e.targetId, label: e.label })) || []
     });
+
+    // Clear existing elements before adding new ones
+    cy.elements().remove();
 
     // Generate cluster colors
     const clusterColors = data.clusters ? calculateClusterColors(data.clusters) : {};
 
-    // Create node elements
+    // Create node elements with proper data attributes
     const nodeElements: ElementDefinition[] = data.nodes.map(node => {
       const nodeId = node.id.toString();
       const nodeCluster = data.clusters?.find(c => c.nodes.includes(nodeId));
@@ -133,8 +131,8 @@ export function GraphViewer({ data }: GraphViewerProps) {
         group: 'nodes',
         data: {
           id: nodeId,
-          label: node.label,
-          type: node.type,
+          label: node.label || `Node ${nodeId}`,
+          type: node.type || 'concept',
           degree: data.metrics?.degree?.[node.id] || 0,
           ...(nodeCluster && {
             clusterColor: clusterColors[nodeCluster.clusterId],
@@ -144,6 +142,7 @@ export function GraphViewer({ data }: GraphViewerProps) {
         classes: nodeCluster ? ['clustered'] : []
       };
 
+      // Add special classes based on node properties
       if (nodeCluster?.metadata.centroidNode === nodeId) {
         element.classes = [...(element.classes || []), 'centroid'];
       }
@@ -155,8 +154,13 @@ export function GraphViewer({ data }: GraphViewerProps) {
       return element;
     });
 
-    // Create edge elements
-    const edgeElements: ElementDefinition[] = data.edges?.map(edge => {
+    // Create edge elements with proper data attributes
+    const edgeElements: ElementDefinition[] = (data.edges || []).map(edge => {
+      if (!edge.sourceId || !edge.targetId) {
+        console.warn('Invalid edge data:', edge);
+        return null;
+      }
+
       const sourceId = edge.sourceId.toString();
       const targetId = edge.targetId.toString();
 
@@ -169,14 +173,13 @@ export function GraphViewer({ data }: GraphViewerProps) {
           id: edgeId,
           source: sourceId,
           target: targetId,
-          label: edge.label,
-          weight: edge.weight
+          label: edge.label || 'related_to',
+          weight: edge.weight || 1
         }
       };
-    }) || [];
+    }).filter(Boolean) as ElementDefinition[];
 
-    // Clear and add elements
-    cy.elements().remove();
+    // Add elements to the graph
     cy.add([...nodeElements, ...edgeElements]);
 
     // Apply styles and layout
@@ -199,12 +202,12 @@ export function GraphViewer({ data }: GraphViewerProps) {
     return () => {
       layout.stop();
     };
-  }, [data]);
+  }, [data]); // Only re-run when data changes
 
   return (
     <div className="w-full h-full">
       <CytoscapeComponent
-        elements={[]}
+        elements={[]} // Elements will be added in useEffect
         stylesheet={styleSheet}
         layout={layoutConfig}
         cy={(cy) => {
