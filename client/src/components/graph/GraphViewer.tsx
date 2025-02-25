@@ -164,7 +164,7 @@ export function GraphViewer({ data }: GraphViewerProps) {
       return element;
     });
 
-    // Create edge elements
+    // Create edge elements with proper ID handling
     const edgeElements = data.edges.map(edge => {
       const sourceId = edge.sourceId.toString();
       const targetId = edge.targetId.toString();
@@ -183,9 +183,11 @@ export function GraphViewer({ data }: GraphViewerProps) {
       });
 
       if (sourceExists && targetExists) {
+        // Ensure we have a valid edge ID string
+        const edgeId = `e${edge.id || Math.floor(Math.random() * 1000000)}`;
         return {
           data: {
-            id: `e${edge.id}`,
+            id: edgeId,
             source: sourceId,
             target: targetId,
             label: edge.label,

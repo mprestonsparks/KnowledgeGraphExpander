@@ -285,10 +285,13 @@ export class GraphManager {
 
     // Store initial edge count and data for verification
     const initialEdgeCount = this.graph.size;
-    const initialEdges = Array.from(this.graph.edges()).map(edgeId => ({
-      ...this.graph.getEdgeAttributes(edgeId),
-      id: parseInt(edgeId.split('-')[0])
-    }));
+    const initialEdges = Array.from(this.graph.edges()).map(edgeId => {
+      const attrs = this.graph.getEdgeAttributes(edgeId);
+      return {
+        ...attrs,
+        id: attrs.id || parseInt(edgeId) // Ensure we have a valid numeric ID
+      };
+    });
 
     console.log('Initial graph state:', {
       edgeCount: initialEdgeCount,
@@ -327,29 +330,14 @@ export class GraphManager {
       id: parseInt(nodeId)
     })) as Node[];
 
-    console.log('Edge preservation check:', {
-      initialEdgeCount,
-      currentEdgeCount: this.graph.size,
-      edgesMatch: initialEdgeCount === this.graph.size
-    });
-
-    if (initialEdgeCount !== this.graph.size) {
-      console.error('Edge count mismatch detected - restoring edges');
-      // Restore edges if they were affected
-      initialEdges.forEach(edge => {
-        const sourceId = edge.sourceId.toString();
-        const targetId = edge.targetId.toString();
-        if (!this.graph.hasEdge(sourceId, targetId)) {
-          this.graph.addEdge(sourceId, targetId, edge);
-        }
-      });
-    }
-
-    // Get final edge state after potential restoration
-    const currentEdges = Array.from(this.graph.edges()).map(edgeId => ({
-      ...this.graph.getEdgeAttributes(edgeId),
-      id: parseInt(edgeId.split('-')[0])
-    })) as Edge[];
+    // Get current edges with proper ID handling
+    const currentEdges = Array.from(this.graph.edges()).map(edgeId => {
+      const attrs = this.graph.getEdgeAttributes(edgeId);
+      return {
+        ...attrs,
+        id: attrs.id || parseInt(edgeId) // Ensure we have a valid numeric ID
+      };
+    }) as Edge[];
 
     console.log('Final graph state:', {
       nodes: currentNodes.length,
