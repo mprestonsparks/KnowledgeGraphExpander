@@ -213,13 +213,13 @@ export function GraphViewer({ data }: GraphViewerProps) {
   }, [data]);
 
   return (
-    <div className="w-full h-full relative">
-      <div className="absolute top-4 right-4 z-10">
+    <div className="relative w-full h-full bg-background">
+      <div className="absolute top-4 right-4 z-50 bg-background/80 p-2 rounded-lg shadow-md">
         <Button
           onClick={refreshGraph}
           size="sm"
-          variant="outline"
-          className="gap-2"
+          variant="secondary"
+          className="gap-2 font-medium"
         >
           <RefreshCcw className="w-4 h-4" />
           Refresh Graph
