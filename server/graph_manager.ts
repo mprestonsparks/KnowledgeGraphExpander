@@ -87,17 +87,28 @@ export class GraphManager {
     const validNodes: InsertNode[] = [];
     const validEdges: InsertEdge[] = [];
 
-    // First pass: collect all proposed nodes and existing nodes
+    // First pass: collect all proposed nodes and check for valid data
     nodes.forEach(node => {
-      nodeLabels.set(node.id, node.label);
-      console.log('Processing node:', {
-        id: node.id,
-        label: node.label
-      });
+      if (node && node.id && node.label) {
+        nodeLabels.set(node.id, node.label);
+        console.log('Processing node:', {
+          id: node.id,
+          label: node.label,
+          type: node.type,
+          metadata: node.metadata
+        });
+      } else {
+        console.warn('Invalid node data:', node);
+      }
     });
 
     // Second pass: validate edges and track connected nodes
     edges.forEach(edge => {
+      if (!edge || !edge.sourceId || !edge.targetId) {
+        console.warn('Invalid edge data:', edge);
+        return;
+      }
+
       const sourceId = edge.sourceId.toString();
       const targetId = edge.targetId.toString();
       const sourceExists = this.graph.hasNode(sourceId) || nodeLabels.has(edge.sourceId);
@@ -136,13 +147,18 @@ export class GraphManager {
       }
     });
 
-    // Third pass: only accept nodes that have connections
+    // Third pass: only accept nodes that have connections or existing edges
     nodes.forEach(node => {
-      const nodeId = node.id.toString();
-      const hasConnections = connectedNodes.has(nodeId);
-      const existingConnections = this.graph.degree(nodeId);
+      if (!node || !node.id) {
+        console.warn('Skipping invalid node:', node);
+        return;
+      }
 
-      if (hasConnections || existingConnections > 0) {
+      const nodeId = node.id.toString();
+      const hasNewConnections = connectedNodes.has(nodeId);
+      const existingConnections = this.graph.hasNode(nodeId) ? this.graph.degree(nodeId) : 0;
+
+      if (hasNewConnections || existingConnections > 0) {
         validNodes.push(node);
         console.log('Accepted connected node:', {
           id: node.id,
@@ -190,9 +206,16 @@ export class GraphManager {
 
         // Log the full expansion result
         console.log('Raw expansion result:', {
+          expansion,
           nodesProposed: expansion.nodes?.length || 0,
-          edgesProposed: expansion.edges?.length || 0
+          edgesProposed: expansion.edges?.length || 0,
+          nextQuestion: expansion.nextQuestion
         });
+
+        if (!expansion.nodes?.length && !expansion.edges?.length) {
+          console.log('No expansion data received, ending iterations');
+          break;
+        }
 
         // Validate expansion data
         const { isValid, validNodes, validEdges } = this.validateExpansionData(
@@ -218,9 +241,17 @@ export class GraphManager {
             const node = await storage.createNode(nodeData);
             if (!this.graph.hasNode(node.id.toString())) {
               this.graph.addNode(node.id.toString(), { ...node });
+              console.log('Added node:', {
+                id: node.id,
+                label: node.label,
+                type: node.type
+              });
             }
           } catch (error) {
-            console.error('Failed to create node:', error);
+            console.error('Failed to create node:', {
+              error,
+              nodeData
+            });
           }
         }
 
@@ -228,15 +259,23 @@ export class GraphManager {
         for (const edgeData of validEdges) {
           try {
             const edge = await storage.createEdge(edgeData);
-            if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
-              this.graph.addEdge(
-                edge.sourceId.toString(),
-                edge.targetId.toString(),
-                { ...edge }
-              );
+            const sourceId = edge.sourceId.toString();
+            const targetId = edge.targetId.toString();
+
+            if (!this.graph.hasEdge(sourceId, targetId)) {
+              this.graph.addEdge(sourceId, targetId, { ...edge });
+              console.log('Added edge:', {
+                id: edge.id,
+                source: sourceId,
+                target: targetId,
+                label: edge.label
+              });
             }
           } catch (error) {
-            console.error('Failed to create edge:', error);
+            console.error('Failed to create edge:', {
+              error,
+              edgeData
+            });
           }
         }
 
