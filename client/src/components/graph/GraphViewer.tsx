@@ -106,39 +106,36 @@ export function GraphViewer({ data }: GraphViewerProps) {
   const cyRef = useRef<Core | null>(null);
 
   useEffect(() => {
-    if (!cyRef.current) return;
+    if (!cyRef.current || !data?.nodes?.length) return;
 
     const cy = cyRef.current;
 
     // Log initial state
     console.log('Graph data received:', {
       nodes: data.nodes.map(n => ({ id: n.id, label: n.label })),
-      edges: data.edges.map(e => ({
+      edges: data.edges?.map(e => ({
         id: e.id,
         source: e.sourceId,
         target: e.targetId,
         label: e.label
-      })),
-      clusters: data.clusters?.length || 0
+      })) || []
     });
 
     // Generate cluster colors
     const clusterColors = data.clusters ? calculateClusterColors(data.clusters) : {};
 
-    // Map to track node elements by ID for edge creation
-    const nodeMap = new Map<number, ElementDefinition>();
-
     // Create node elements
-    const nodeElements = data.nodes.map(node => {
+    const nodeElements: ElementDefinition[] = data.nodes.map(node => {
       const nodeId = node.id.toString();
       const nodeCluster = data.clusters?.find(c => c.nodes.includes(nodeId));
 
       const element: ElementDefinition = {
+        group: 'nodes',
         data: {
           id: nodeId,
           label: node.label,
           type: node.type,
-          degree: data.metrics.degree[node.id] || 0,
+          degree: data.metrics?.degree?.[node.id] || 0,
           ...(nodeCluster && {
             clusterColor: clusterColors[nodeCluster.clusterId],
             clusterId: nodeCluster.clusterId
@@ -148,101 +145,52 @@ export function GraphViewer({ data }: GraphViewerProps) {
       };
 
       if (nodeCluster?.metadata.centroidNode === nodeId) {
-        element.classes.push('centroid');
+        element.classes = [...(element.classes || []), 'centroid'];
       }
 
-      if (data.metrics.degree[node.id] === 0) {
-        element.classes.push('disconnected');
+      if ((data.metrics?.degree?.[node.id] || 0) === 0) {
+        element.classes = [...(element.classes || []), 'disconnected'];
       }
 
-      nodeMap.set(node.id, element);
-      console.log('Created node element:', {
-        id: nodeId,
-        label: node.label,
-        classes: element.classes
-      });
       return element;
     });
 
-    // Create edge elements with proper ID handling
-    const edgeElements = data.edges.map(edge => {
+    // Create edge elements
+    const edgeElements: ElementDefinition[] = data.edges?.map(edge => {
       const sourceId = edge.sourceId.toString();
       const targetId = edge.targetId.toString();
 
-      // Verify node existence
-      const sourceExists = nodeMap.has(edge.sourceId);
-      const targetExists = nodeMap.has(edge.targetId);
+      // Ensure we have a valid edge ID
+      const edgeId = `e${edge.id || Math.floor(Math.random() * 1000000)}`;
 
-      console.log('Processing edge:', {
-        id: edge.id,
-        source: sourceId,
-        target: targetId,
-        sourceExists,
-        targetExists,
-        label: edge.label
-      });
+      return {
+        group: 'edges',
+        data: {
+          id: edgeId,
+          source: sourceId,
+          target: targetId,
+          label: edge.label,
+          weight: edge.weight
+        }
+      };
+    }) || [];
 
-      if (sourceExists && targetExists) {
-        // Ensure we have a valid edge ID string
-        const edgeId = `e${edge.id || Math.floor(Math.random() * 1000000)}`;
-        return {
-          data: {
-            id: edgeId,
-            source: sourceId,
-            target: targetId,
-            label: edge.label,
-            weight: edge.weight
-          },
-          classes: []
-        };
-      }
-      console.warn('Skipping edge due to missing nodes:', {
-        edge,
-        sourceExists,
-        targetExists
-      });
-      return null;
-    }).filter((edge): edge is ElementDefinition => edge !== null);
-
-    // Clear existing elements
+    // Clear and add elements
     cy.elements().remove();
-
-    // Add elements and verify
-    const elementsToAdd = [...nodeElements, ...edgeElements];
-    console.log('Adding elements to cytoscape:', {
-      totalElements: elementsToAdd.length,
-      nodes: nodeElements.length,
-      edges: edgeElements.length,
-      edgeDetails: edgeElements.map(e => ({
-        id: e.data.id,
-        source: e.data.source,
-        target: e.data.target,
-        label: e.data.label
-      }))
-    });
-
-    cy.add(elementsToAdd);
-
-    // Verify elements were added
-    console.log('Elements in cytoscape after adding:', {
-      nodes: cy.nodes().length,
-      edges: cy.edges().length,
-      edgeIds: cy.edges().map(e => e.id()).toArray()
-    });
+    cy.add([...nodeElements, ...edgeElements]);
 
     // Apply styles and layout
     cy.style(styleSheet);
     const layout = cy.layout(layoutConfig);
 
     layout.one('layoutstop', () => {
-      console.log('Layout complete. Final element counts:', {
+      console.log('Layout complete:', {
         nodes: cy.nodes().length,
         edges: cy.edges().length,
         clusters: cy.nodes('.clustered').length,
         centroids: cy.nodes('.centroid').length,
         disconnected: cy.nodes('.disconnected').length
       });
-
       cy.fit();
     });
 

@@ -166,5 +166,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Add to existing registerRoutes function
+  app.post('/api/graph/analyze', async (req, res) => {
+    const schema = z.object({ content: z.string() });
+    const result = schema.safeParse(req.body);
+
+    if (!result.success) {
+      return res.status(400).json({ error: "Invalid request body" });
+    }
+
+    try {
+      const updatedGraph = await graphManager.expandWithSemantics(result.data.content);
+      console.log('Graph expanded with semantic analysis');
+      broadcastUpdate(updatedGraph);
+      res.json(updatedGraph);
+    } catch (error) {
+      console.error('Failed to analyze content:', error);
+      res.status(500).json({ error: "Failed to analyze content" });
+    }
+  });
+
   return httpServer;
 }

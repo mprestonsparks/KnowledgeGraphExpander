@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { expandGraph } from "./openai_client";
 import { SemanticClusteringService, type ClusterResult } from "./semantic_clustering";
 import connectedComponents from "graphology-components";
+import { semanticAnalysis } from "./semantic_analysis";
 
 interface GraphDataWithClusters extends GraphData {
   clusters: ClusterResult[];
@@ -486,6 +487,64 @@ export class GraphManager {
 
     // Calculate final metrics
     return this.calculateMetrics();
+  }
+
+  async expandWithSemantics(content: string): Promise<GraphData> {
+    if (this.isExpanding) {
+      console.log('Waiting for ongoing expansion to complete');
+      await this.expandPromise;
+      return this.calculateMetrics();
+    }
+
+    try {
+      this.isExpanding = true;
+      console.log('Starting semantic expansion with content');
+
+      // Get current nodes
+      const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
+        ...this.graph.getNodeAttributes(nodeId),
+        id: parseInt(nodeId)
+      })) as Node[];
+
+      // Perform semantic analysis
+      const analysisResult = await semanticAnalysis.analyzeContent(content, currentNodes);
+      console.log('Semantic analysis complete:', {
+        newNodes: analysisResult.nodes.length,
+        newEdges: analysisResult.edges.length,
+        reasoning: analysisResult.reasoning
+      });
+
+      // Add new nodes and edges
+      for (const nodeData of analysisResult.nodes) {
+        try {
+          const node = await storage.createNode(nodeData);
+          if (!this.graph.hasNode(node.id.toString())) {
+            this.graph.addNode(node.id.toString(), { ...node });
+          }
+        } catch (error) {
+          console.error('Failed to create node:', error);
+        }
+      }
+
+      for (const edgeData of analysisResult.edges) {
+        try {
+          const edge = await storage.createEdge(edgeData);
+          if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
+            this.graph.addEdge(
+              edge.sourceId.toString(),
+              edge.targetId.toString(),
+              { ...edge }
+            );
+          }
+        } catch (error) {
+          console.error('Failed to create edge:', error);
+        }
+      }
+
+      return this.calculateMetrics();
+    } finally {
+      this.isExpanding = false;
+    }
   }
 }
 
