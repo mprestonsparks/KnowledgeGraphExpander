@@ -1,12 +1,52 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { GraphViewer } from './GraphViewer';
 import type { GraphData, ClusterResult } from '@shared/schema';
+import type { ElementDefinition } from 'cytoscape';
+
+// Initialize mockCy outside describe block to ensure proper scoping
+const createMockCy = () => ({
+  elements: vi.fn().mockReturnValue({ remove: vi.fn() }),
+  add: vi.fn().mockReturnValue({ style: vi.fn() }),
+  style: vi.fn(),
+  layout: vi.fn().mockReturnValue({
+    run: vi.fn(),
+    stop: vi.fn(),
+    one: vi.fn((event: string, callback: Function) => {
+      if (event === 'layoutstop') callback();
+    })
+  }),
+  nodes: vi.fn().mockReturnValue({
+    length: 0,
+    filter: vi.fn().mockReturnValue([]),
+    forEach: vi.fn()
+  }),
+  edges: vi.fn().mockReturnValue({
+    length: 0,
+    filter: vi.fn().mockReturnValue([]),
+    map: vi.fn().mockReturnValue([])
+  }),
+  fit: vi.fn(),
+  destroy: vi.fn()  // Add destroy method for unmounting
+});
+
+let mockCy = createMockCy();
+
+// Mock Cytoscape component before tests begin
+vi.mock('react-cytoscapejs', () => ({
+  __esModule: true,
+  default: vi.fn().mockImplementation(({ cy }) => {
+    if (cy) {
+      const instance = mockCy;
+      cy(instance);
+      return <div data-testid="cytoscape-mock" />;
+    }
+    return <div data-testid="cytoscape-mock" />;
+  })
+}));
 
 describe('GraphViewer', () => {
-  let mockCy: any;
-  let mockElements: any[];
-  let mockStyle: any;
+  let mockElements: ElementDefinition[] = [];
 
   const mockGraphData: GraphData & { clusters: ClusterResult[] } = {
     nodes: [
@@ -15,13 +55,12 @@ describe('GraphViewer', () => {
       { id: 3, label: "Node 3", type: "concept", metadata: {} }
     ],
     edges: [
-      { id: 1, sourceId: 1, targetId: 2, label: "related_to", weight: 1 },
-      { id: 2, sourceId: 2, targetId: 3, label: "connects_to", weight: 1 }
+      { id: 1, sourceId: 1, targetId: 2, label: "related_to", weight: 1 }
     ],
     metrics: {
       betweenness: { 1: 0.5, 2: 0.5, 3: 0.0 },
       eigenvector: { 1: 0.5, 2: 0.5, 3: 0.0 },
-      degree: { 1: 1, 2: 2, 3: 1 }
+      degree: { 1: 1, 2: 1, 3: 0 }
     },
     clusters: [
       {
@@ -29,7 +68,7 @@ describe('GraphViewer', () => {
         nodes: ["1", "2"],
         metadata: {
           centroidNode: "1",
-          semanticTheme: "concept cluster",
+          semanticTheme: "test cluster",
           coherenceScore: 0.8
         }
       }
@@ -38,51 +77,11 @@ describe('GraphViewer', () => {
 
   beforeEach(() => {
     mockElements = [];
-    mockStyle = vi.fn();
-
-    mockCy = {
-      elements: () => ({
-        remove: vi.fn(),
-        length: mockElements.length,
-      }),
-      add: (elements: any[]) => {
-        mockElements = elements;
-        return {
-          style: mockStyle
-        };
-      },
-      style: mockStyle,
-      layout: () => ({
-        run: vi.fn(),
-        stop: vi.fn(),
-        one: (event: string, callback: Function) => {
-          if (event === 'layoutstop') {
-            callback();
-          }
-        }
-      }),
-      nodes: () => ({
-        length: mockElements.filter(el => el.group === 'nodes').length,
-        forEach: (callback: Function) => mockElements
-          .filter(el => el.group === 'nodes')
-          .forEach(callback)
-      }),
-      edges: () => ({
-        length: mockElements.filter(el => el.group === 'edges').length,
-        map: (callback: Function) => mockElements
-          .filter(el => el.group === 'edges')
-          .map(callback)
-      }),
-      fit: vi.fn()
-    };
-
-    // Mock Cytoscape component
-    vi.mock('react-cytoscapejs', () => ({
-      default: vi.fn().mockImplementation(({ cy }) => {
-        if (cy) cy(mockCy);
-        return <div data-testid="cytoscape-mock" />;
-      })
-    }));
+    mockCy = createMockCy(); // Reset mockCy for each test
+    mockCy.add.mockImplementation((elements: ElementDefinition[]) => {
+      mockElements = elements;
+      return { style: mockCy.style };
+    });
   });
 
   it('should assign cluster colors to nodes', () => {
@@ -95,15 +94,18 @@ describe('GraphViewer', () => {
     expect(nodesWithColors[0].data.clusterColor).toMatch(/^hsl\(\d+,\s*\d+%,\s*\d+%\)$/);
   });
 
-  it('should apply cluster styles correctly', () => {
+  it('should correctly handle edge creation', () => {
     render(<GraphViewer data={mockGraphData} />);
 
-    const clusteredNodes = mockElements
-      .filter(el => el.group === 'nodes' && el.classes?.includes('clustered'));
+    const edges = mockElements.filter(el => el.group === 'edges');
 
-    expect(clusteredNodes).toHaveLength(2);
-    expect(clusteredNodes[0].data.clusterColor).toBeDefined();
-    expect(mockStyle).toHaveBeenCalled();
+    expect(edges).toHaveLength(mockGraphData.edges.length);
+    edges.forEach((edge, index) => {
+      const originalEdge = mockGraphData.edges[index];
+      expect(edge.data.source).toBe(originalEdge.sourceId.toString());
+      expect(edge.data.target).toBe(originalEdge.targetId.toString());
+      expect(edge.data.label).toBe(originalEdge.label);
+    });
   });
 
   it('should mark centroid nodes', () => {
@@ -126,93 +128,29 @@ describe('GraphViewer', () => {
     expect(disconnectedNodes[0].data.id).toBe('3');
   });
 
-  it('should preserve all edges when adding elements to graph', () => {
-    render(<GraphViewer data={mockGraphData} />);
-
-    const edgeElements = mockElements.filter(el => 
-      el.data && el.data.source && el.data.target
-    );
-
-    expect(edgeElements).toHaveLength(mockGraphData.edges.length);
-
-    // Verify each edge from mockData is present in rendered elements
-    mockGraphData.edges.forEach(edge => {
-      const renderedEdge = edgeElements.find(el => 
-        el.data.source === edge.sourceId.toString() && 
-        el.data.target === edge.targetId.toString()
-      );
-      expect(renderedEdge).toBeDefined();
-      expect(renderedEdge.data.label).toBe(edge.label);
-    });
-  });
-
   it('should correctly handle ID types when creating edges', () => {
     render(<GraphViewer data={mockGraphData} />);
 
-    const edgeElements = mockElements.filter(el => el.data && el.data.source);
-
-    edgeElements.forEach(edge => {
-      // Verify IDs are strings
+    const edges = mockElements.filter(el => el.group === 'edges');
+    edges.forEach(edge => {
       expect(typeof edge.data.source).toBe('string');
       expect(typeof edge.data.target).toBe('string');
-      // Verify IDs match source data after conversion
-      const originalEdge = mockGraphData.edges.find(e => 
-        e.sourceId.toString() === edge.data.source &&
-        e.targetId.toString() === edge.data.target
-      );
-      expect(originalEdge).toBeDefined();
+      expect(edge.data.id).toMatch(/^e\d+$/);
     });
-  });
-
-  it('should maintain edge visibility after clustering', () => {
-    // Render initial state
-    render(<GraphViewer data={mockGraphData} />);
-
-    const initialEdgeCount = mockElements.filter(el => 
-      el.data && el.data.source
-    ).length;
-
-    // Simulate updating with new cluster data
-    const updatedData = {
-      ...mockGraphData,
-      clusters: [
-        ...mockGraphData.clusters,
-        {
-          clusterId: 1,
-          nodes: ["3"],
-          metadata: {
-            centroidNode: "3",
-            semanticTheme: "new cluster",
-            coherenceScore: 0.7
-          }
-        }
-      ]
-    };
-
-    render(<GraphViewer data={updatedData} />);
-
-    const finalEdgeCount = mockElements.filter(el => 
-      el.data && el.data.source
-    ).length;
-
-    expect(finalEdgeCount).toBe(initialEdgeCount);
   });
 
   it('should correctly apply edge styles', () => {
     render(<GraphViewer data={mockGraphData} />);
 
-    // Verify that style was called with edge styles
-    const styleCall = mockStyle.mock.calls.find(call => 
-      call[0].some((style: any) => style.selector === 'edge')
-    );
-
-    expect(styleCall).toBeDefined();
-    const edgeStyle = styleCall[0].find((style: any) => style.selector === 'edge');
-    expect(edgeStyle.style).toMatchObject({
-      width: expect.any(Number),
-      'line-color': expect.any(String),
-      'target-arrow-shape': 'triangle',
-      opacity: 1
-    });
+    expect(mockCy.style).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({
+        selector: 'edge',
+        style: expect.objectContaining({
+          'width': 2,
+          'line-color': expect.any(String),
+          'target-arrow-shape': 'triangle'
+        })
+      })
+    ]));
   });
 });

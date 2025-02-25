@@ -4,6 +4,7 @@ import type { Node, Edge, InsertNode, InsertEdge } from "@shared/schema";
 // the newest Anthropic model is "claude-3-5-sonnet-20241022" which was released October 22, 2024
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
+  dangerouslyAllowBrowser: process.env.NODE_ENV === 'test' // Enable for testing environment
 });
 
 interface SemanticAnalysisResult {
