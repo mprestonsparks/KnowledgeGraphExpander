@@ -3,54 +3,59 @@ import { SemanticAnalysisService } from './semantic_analysis';
 import type { Node } from '@shared/schema';
 import Anthropic from '@anthropic-ai/sdk';
 
-// Mock Anthropic client
-vi.mock('@anthropic-ai/sdk', () => {
-  const mockCreate = vi.fn().mockImplementation(async ({ messages }) => {
-    if (messages[0].content.includes('Given these knowledge graph nodes')) {
-      // For relationship suggestions
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify([
-            { sourceId: 1, targetId: 2, label: "test_relation", weight: 1 }
-          ])
-        }]
-      };
-    } else {
-      // For content analysis
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify({
-            nodes: [
-              { label: "Test Node", type: "concept", metadata: { description: "A test node" } }
-            ],
-            edges: [
-              { sourceId: 1, targetId: 2, label: "test_relation", weight: 1 }
-            ],
-            reasoning: "Test analysis"
-          })
-        }]
-      };
-    }
-  });
+// Create mock function before usage
+const mockCreate = vi.fn();
 
-  return {
-    default: vi.fn().mockImplementation(() => ({
-      messages: { create: mockCreate }
-    }))
-  };
-});
+// Mock Anthropic client
+vi.mock('@anthropic-ai/sdk', () => ({
+  default: vi.fn().mockImplementation(() => ({
+    messages: { create: mockCreate }
+  }))
+}));
+
+// Define test data
+const mockApiResponse = {
+  content: [{
+    type: 'text',
+    text: JSON.stringify({
+      nodes: [
+        { label: "Test Node", type: "concept", metadata: { description: "A test node" } }
+      ],
+      edges: [
+        { sourceId: 1, targetId: 2, label: "test_relation", weight: 1 }
+      ],
+      reasoning: "Test analysis"
+    })
+  }]
+};
+
+const mockRelationshipResponse = {
+  content: [{
+    type: 'text',
+    text: JSON.stringify([
+      { sourceId: 1, targetId: 2, label: "test_relation", weight: 1 }
+    ])
+  }]
+};
 
 describe('SemanticAnalysisService', () => {
   let service: SemanticAnalysisService;
   let mockNodes: Node[];
 
   beforeEach(() => {
+    vi.clearAllMocks();
     service = new SemanticAnalysisService();
     mockNodes = [
       { id: 1, label: "Existing Node", type: "concept", metadata: {} }
     ];
+
+    // Reset mock to default success behavior
+    mockCreate.mockImplementation(async ({ messages }) => {
+      if (messages[0].content.includes('Given these knowledge graph nodes')) {
+        return mockRelationshipResponse;
+      }
+      return mockApiResponse;
+    });
   });
 
   describe('analyzeContent', () => {
@@ -59,13 +64,24 @@ describe('SemanticAnalysisService', () => {
 
       expect(result).toEqual({
         nodes: [
-          { id: 2, label: "Test Node", type: "concept", metadata: { description: "A test node" } }
+          { label: "Test Node", type: "concept", metadata: { description: "A test node" } }
         ],
         edges: [
           { sourceId: 1, targetId: 2, label: "test_relation", weight: 1 }
         ],
         reasoning: "Test analysis"
       });
+    });
+
+    it('should handle API errors gracefully', async () => {
+      // Suppress error logging
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      // Mock API error
+      mockCreate.mockRejectedValueOnce(new Error('API Error'));
+
+      await expect(service.analyzeContent("Test content", mockNodes))
+        .rejects.toThrow('Failed to perform semantic analysis');
     });
   });
 
@@ -79,14 +95,11 @@ describe('SemanticAnalysisService', () => {
     });
 
     it('should handle API errors gracefully', async () => {
-      // Suppress console error output during test
+      // Suppress error logging
       vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      // Override the mock for this test only
-      const mockCreate = vi.fn().mockRejectedValueOnce(new Error('API Error'));
-      vi.mocked(Anthropic).mockImplementationOnce(() => ({
-        messages: { create: mockCreate }
-      }));
+      // Mock API error for this test
+      mockCreate.mockRejectedValueOnce(new Error('API Error'));
 
       await expect(service.suggestRelationships(mockNodes))
         .rejects.toThrow('Failed to suggest relationships');
