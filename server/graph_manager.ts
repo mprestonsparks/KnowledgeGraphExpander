@@ -283,6 +283,10 @@ export class GraphManager {
   private calculateMetrics(): GraphDataWithClusters {
     console.log('Starting metrics calculation');
 
+    // Store initial edge count for verification
+    const initialEdgeCount = this.graph.size;
+    console.log('Initial edge count:', initialEdgeCount);
+
     const betweenness = centrality.betweenness(this.graph);
     let eigenvector: Record<string, number> = {};
 
@@ -300,6 +304,12 @@ export class GraphManager {
       const id = parseInt(nodeId);
       degree[id] = this.graph.degree(nodeId);
     });
+
+    // Get current edges before clustering
+    const currentEdges = Array.from(this.graph.edges()).map(edgeId => ({
+      ...this.graph.getEdgeAttributes(edgeId),
+      id: parseInt(edgeId.split('-')[0])
+    })) as Edge[];
 
     const clusters = this.semanticClustering.clusterNodes();
 
@@ -319,10 +329,16 @@ export class GraphManager {
       id: parseInt(nodeId)
     })) as Node[];
 
-    const currentEdges = Array.from(this.graph.edges()).map(edgeId => ({
-      ...this.graph.getEdgeAttributes(edgeId),
-      id: parseInt(edgeId.split('-')[0])
-    })) as Edge[];
+    // Verify edge preservation
+    console.log('Edge preservation check:', {
+      initialEdgeCount,
+      finalEdgeCount: currentEdges.length,
+      edgesMatch: initialEdgeCount === currentEdges.length
+    });
+
+    if (initialEdgeCount !== currentEdges.length) {
+      console.error('Edge count mismatch detected during metrics calculation');
+    }
 
     console.log('Graph data prepared:', {
       nodes: currentNodes.length,
@@ -363,6 +379,12 @@ export class GraphManager {
     console.log('Starting reconnection of disconnected nodes');
     const disconnectedNodeIds = new Set<string>();
 
+    // Store initial state for verification
+    const initialState = {
+      edges: this.graph.size,
+      edgeList: Array.from(this.graph.edges())
+    };
+
     // Identify disconnected nodes
     this.graph.forEachNode((nodeId: string) => {
       if (this.graph.degree(nodeId) === 0) {
@@ -391,7 +413,9 @@ export class GraphManager {
       nodesByType.get(node.type)!.push(nodeId);
     });
 
+    let reconnectionAttempts = 0;
     let reconnectedCount = 0;
+
     // Connect nodes of similar types
     for (const [type, nodes] of nodesByType.entries()) {
       console.log(`Processing nodes of type: ${type}`);
@@ -412,6 +436,7 @@ export class GraphManager {
           });
 
           if (targetNodeId) {
+            reconnectionAttempts++;
             const sourceNode = this.graph.getNodeAttributes(nodeId);
             const targetNode = this.graph.getNodeAttributes(targetNodeId);
 
@@ -423,7 +448,7 @@ export class GraphManager {
               weight: 1
             });
 
-            // Then add edge to graph
+            // Then add edge to graph if it doesn't exist
             if (!this.graph.hasEdge(nodeId, targetNodeId)) {
               this.graph.addEdge(nodeId, targetNodeId, { ...edge });
               reconnectedCount++;
@@ -443,13 +468,22 @@ export class GraphManager {
       }
     }
 
+    // Verify edge preservation
+    const finalState = {
+      edges: this.graph.size,
+      edgeList: Array.from(this.graph.edges())
+    };
+
     console.log('Reconnection complete:', {
-      initialDisconnected: disconnectedNodeIds.size,
-      reconnected: reconnectedCount,
-      remainingDisconnected: this.countDisconnectedNodes()
+      initialEdges: initialState.edges,
+      finalEdges: finalState.edges,
+      reconnectionAttempts,
+      reconnectedCount,
+      remainingDisconnected: this.countDisconnectedNodes(),
+      edgesPreserved: initialState.edgeList.every(edge => finalState.edgeList.includes(edge))
     });
 
-    // Recalculate metrics and clusters after reconnection
+    // Calculate final metrics
     return this.calculateMetrics();
   }
 }
