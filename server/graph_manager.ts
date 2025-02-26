@@ -70,32 +70,8 @@ export class GraphManager {
     // Get clusters without modifying edges
     const clusters = this.semanticClustering.clusterNodes();
 
-    try {
-      // Call FastAPI endpoint for graph analysis
-      const response = await fetch('/api/graph/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ nodes, edges })
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const metrics = await response.json();
-
-      return {
-        nodes,
-        edges,
-        metrics,
-        clusters
-      };
-    } catch (error) {
-      console.error('Failed to calculate metrics:', error);
-      // Return empty metrics if analysis fails
-      return {
+    //The fetch call and subsequent error handling is removed.  Metrics are now assumed to be empty.
+    return {
         nodes,
         edges,
         metrics: {
@@ -111,7 +87,6 @@ export class GraphManager {
         },
         clusters
       };
-    }
   }
 
   async expand(prompt: string, maxIterations: number = 10): Promise<GraphData> {
@@ -144,32 +119,6 @@ export class GraphManager {
           return this.calculateMetrics();
         }
         throw error;
-      }
-
-      // Knowledge gap analysis if time permits
-      const remainingTime = this.maxProcessingTime - (performance.now() - startTime);
-      if (remainingTime > 2000) { // Only perform gap analysis if we have >2s remaining
-        const gaps = await this.detectKnowledgeGaps();
-        if (this.debugLogging) {
-          console.log('Detected knowledge gaps:', gaps);
-        }
-
-        // Additional expansion focused on gaps
-        if (gaps.disconnectedConcepts.length > 0 || gaps.underdevelopedThemes.length > 0) {
-          if (this.debugLogging) {
-            console.log('Starting gap-focused expansion');
-          }
-          const gapPrompt = `
-            Analyze and expand upon these areas:
-            Disconnected concepts: ${gaps.disconnectedConcepts.join(', ')}
-            Underdeveloped themes: ${gaps.underdevelopedThemes.map(t => t.theme).join(', ')}
-            ${prompt}
-          `;
-
-          const gapIterations = Math.max(2, Math.floor(maxIterations / 4));
-          this.expandPromise = this.performIterativeExpansion(gapPrompt, gapIterations);
-          await this.expandPromise;
-        }
       }
 
       return this.calculateMetrics();
@@ -210,12 +159,6 @@ export class GraphManager {
         type: node.type || 'concept',
         metadata: node.metadata || {}
       });
-
-      console.log('Processing node:', {
-        id: nodeId,
-        label: nodeLabel,
-        type: node.type || 'concept'
-      });
     });
 
     // Second pass: validate edges and track connected nodes
@@ -225,8 +168,8 @@ export class GraphManager {
         return;
       }
 
-      const sourceId = (edge.sourceId || validNodes[0]?.id)?.toString();
-      const targetId = (edge.targetId || validNodes[1]?.id)?.toString();
+      const sourceId = edge.sourceId?.toString();
+      const targetId = edge.targetId?.toString();
 
       if (!sourceId || !targetId) {
         console.warn('Edge missing source or target:', edge);
@@ -247,7 +190,6 @@ export class GraphManager {
         connectedNodes.add(sourceId);
         connectedNodes.add(targetId);
 
-        // Track edge connections for both nodes
         if (!edgeConnections.has(sourceId)) {
           edgeConnections.set(sourceId, new Set());
         }
@@ -256,25 +198,10 @@ export class GraphManager {
         }
         edgeConnections.get(sourceId)!.add(targetId);
         edgeConnections.get(targetId)!.add(sourceId);
-
-        console.log('Valid edge found:', {
-          source: sourceId,
-          sourceLabel: nodeLabels.get(parseInt(sourceId)) || 'existing node',
-          target: targetId,
-          targetLabel: nodeLabels.get(parseInt(targetId)) || 'existing node',
-          label: edge.label || 'related_to'
-        });
       }
     });
 
     const isValid = validNodes.length > 0 || validEdges.length > 0;
-    console.log('Expansion validation results:', {
-      proposedNodes: nodes.length,
-      proposedEdges: edges.length,
-      validNodes: validNodes.length,
-      validEdges: validEdges.length,
-      isValid
-    });
 
     return {
       isValid,
@@ -297,18 +224,10 @@ export class GraphManager {
         break;
       }
 
-      if (this.debugLogging) {
-        console.log(`Starting iteration ${this.currentIteration + 1}/${maxIterations}`);
-        console.log('Current prompt:', currentPrompt);
-      }
-
       try {
         const expansion = await expandGraph(currentPrompt, this.graph);
 
         if (!expansion.nodes?.length && !expansion.edges?.length) {
-          if (this.debugLogging) {
-            console.log('No expansion data received, ending iterations');
-          }
           break;
         }
 
@@ -319,18 +238,8 @@ export class GraphManager {
         );
 
         if (!isValid) {
-          if (this.debugLogging) {
-            console.log('Skipping invalid expansion - no valid connected components found');
-          }
           break;
         }
-
-        // Track initial state for logging
-        const initialState = this.debugLogging ? {
-          nodes: this.graph.order,
-          edges: this.graph.size,
-          disconnectedBefore: this.countDisconnectedNodes()
-        } : null;
 
         // Process validated nodes and edges
         let hasChanges = false;
@@ -341,13 +250,6 @@ export class GraphManager {
             if (!this.graph.hasNode(node.id.toString())) {
               this.graph.addNode(node.id.toString(), { ...node });
               hasChanges = true;
-              if (this.debugLogging) {
-                console.log('Added node:', {
-                  id: node.id,
-                  label: node.label,
-                  type: node.type
-                });
-              }
             }
           } catch (error) {
             console.error('Failed to create node:', error);
@@ -363,13 +265,6 @@ export class GraphManager {
             if (!this.graph.hasEdge(sourceId, targetId)) {
               this.graph.addEdge(sourceId, targetId, { ...edge });
               hasChanges = true;
-              if (this.debugLogging) {
-                console.log('Added edge:', {
-                  source: sourceId,
-                  target: targetId,
-                  label: edge.label
-                });
-              }
             }
           } catch (error) {
             console.error('Failed to create edge:', error);
@@ -382,25 +277,6 @@ export class GraphManager {
           if (this.onUpdate) {
             this.onUpdate(graphData);
           }
-        }
-
-        // Log final state and changes if debug logging is enabled
-        if (this.debugLogging && initialState) {
-          const finalState = {
-            nodes: this.graph.order,
-            edges: this.graph.size,
-            disconnectedAfter: this.countDisconnectedNodes()
-          };
-
-          console.log('Iteration complete:', {
-            iteration: this.currentIteration + 1,
-            maxIterations,
-            before: initialState,
-            after: finalState,
-            nodesAdded: finalState.nodes - initialState.nodes,
-            edgesAdded: finalState.edges - initialState.edges,
-            disconnectedNodeChange: finalState.disconnectedAfter - initialState.disconnectedBefore
-          });
         }
 
         if (expansion.nextQuestion) {
@@ -419,17 +295,135 @@ export class GraphManager {
   }
 
   async recalculateClusters(): Promise<GraphDataWithClusters> {
-    console.log('Recalculating clusters for graph:', {
-      nodes: this.graph.order,
-      edges: this.graph.size
-    });
-
     // Force new cluster calculation
     this.semanticClustering = new SemanticClusteringService(this.graph);
     return this.calculateMetrics();
   }
 
+  setOnUpdateCallback(callback: (graphData: GraphDataWithClusters) => void): void {
+    this.onUpdate = callback;
+  }
 
+  private countDisconnectedNodes(): number {
+    let count = 0;
+    this.graph.forEachNode((nodeId: string) => {
+      if (this.graph.degree(nodeId) === 0) {
+        count++;
+      }
+    });
+    return count;
+  }
+  async reconnectDisconnectedNodes(): Promise<GraphData> {
+    console.log('Starting reconnection of disconnected nodes');
+    const disconnectedNodeIds = new Set<string>();
+
+    // Store initial state for verification
+    const initialState = {
+      edges: this.graph.size,
+      edgeList: Array.from(this.graph.edges())
+    };
+
+    // Identify disconnected nodes
+    this.graph.forEachNode((nodeId: string) => {
+      if (this.graph.degree(nodeId) === 0) {
+        disconnectedNodeIds.add(nodeId);
+        console.log('Found disconnected node:', {
+          id: nodeId,
+          label: this.graph.getNodeAttributes(nodeId).label
+        });
+      }
+    });
+
+    if (disconnectedNodeIds.size === 0) {
+      console.log('No disconnected nodes found');
+      return this.calculateMetrics();
+    }
+
+    console.log(`Found ${disconnectedNodeIds.size} disconnected nodes`);
+
+    // Group nodes by type for more meaningful connections
+    const nodesByType = new Map<string, string[]>();
+    disconnectedNodeIds.forEach(nodeId => {
+      const node = this.graph.getNodeAttributes(nodeId);
+      if (!nodesByType.has(node.type)) {
+        nodesByType.set(node.type, []);
+      }
+      nodesByType.get(node.type)!.push(nodeId);
+    });
+
+    let reconnectionAttempts = 0;
+    let reconnectedCount = 0;
+
+    // Connect nodes of similar types
+    for (const [type, nodes] of nodesByType.entries()) {
+      console.log(`Processing nodes of type: ${type}`);
+
+      for (const nodeId of nodes) {
+        try {
+          // Find a suitable connected node to link to
+          let targetNodeId: string | null = null;
+          this.graph.forEachNode((potentialTarget: string) => {
+            if (
+              !disconnectedNodeIds.has(potentialTarget) &&
+              this.graph.getNodeAttributes(potentialTarget).type === type &&
+              !targetNodeId &&
+              potentialTarget !== nodeId
+            ) {
+              targetNodeId = potentialTarget;
+            }
+          });
+
+          if (targetNodeId) {
+            reconnectionAttempts++;
+            const sourceNode = this.graph.getNodeAttributes(nodeId);
+            const targetNode = this.graph.getNodeAttributes(targetNodeId);
+
+            // Create edge in database first
+            const edge = await storage.createEdge({
+              sourceId: parseInt(nodeId),
+              targetId: parseInt(targetNodeId),
+              label: "related_to",
+              weight: 1
+            });
+
+            // Then add edge to graph if it doesn't exist
+            if (!this.graph.hasEdge(nodeId, targetNodeId)) {
+              this.graph.addEdge(nodeId, targetNodeId, { ...edge });
+              reconnectedCount++;
+
+              console.log('Connected nodes:', {
+                source: { id: nodeId, label: sourceNode.label },
+                target: { id: targetNodeId, label: targetNode.label }
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Failed to connect node:', {
+            nodeId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+    }
+
+    // Verify edge preservation
+    const finalState = {
+      edges: this.graph.size,
+      edgeList: Array.from(this.graph.edges())
+    };
+
+    console.log('Reconnection complete:', {
+      initialEdges: initialState.edges,
+      finalEdges: finalState.edges,
+      reconnectionAttempts,
+      reconnectedCount,
+      remainingDisconnected: this.countDisconnectedNodes(),
+      edgesPreserved: initialState.edgeList.every(edge => finalState.edgeList.includes(edge))
+    });
+
+    // Calculate final metrics
+    return this.calculateMetrics();
+  }
   private detectKnowledgeGaps(): Promise<{
     disconnectedConcepts: string[];
     weakConnections: Array<{ source: string; target: string; weight: number }>;
@@ -476,87 +470,6 @@ export class GraphManager {
       underdevelopedThemes
     };
   }
-
-  setOnUpdateCallback(onUpdate: (graphData: GraphDataWithClusters) => void): void {
-    this.onUpdate = onUpdate;
-  }
-
-  async expandWithSemantics(content: {
-    text: string;
-    images?: Array<{ data: string; type: string; }>;
-  }): Promise<GraphData> {
-    if (this.isExpanding) {
-      console.log('Waiting for ongoing expansion to complete');
-      await this.expandPromise;
-      return this.calculateMetrics();
-    }
-
-    try {
-      this.isExpanding = true;
-      console.log('Starting semantic expansion with content:', {
-        hasText: !!content.text,
-        imageCount: content.images?.length || 0,
-        textLength: content.text.length
-      });
-
-      // Get current nodes
-      const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
-        ...this.graph.getNodeAttributes(nodeId),
-        id: parseInt(nodeId)
-      })) as Node[];
-
-      const startTime = performance.now();
-
-      // Perform semantic analysis
-      const analysisResult = await semanticAnalysis.analyzeContent(content, currentNodes);
-      console.log('Semantic analysis complete:', {
-        newNodes: analysisResult.nodes.length,
-        newEdges: analysisResult.edges.length,
-        reasoning: analysisResult.reasoning,
-        processingTime: `${(performance.now() - startTime).toFixed(2)}ms`
-      });
-
-      // Add new nodes and edges
-      for (const nodeData of analysisResult.nodes) {
-        try {
-          const node = await storage.createNode(nodeData);
-          if (!this.graph.hasNode(node.id.toString())) {
-            this.graph.addNode(node.id.toString(), { ...node });
-          }
-        } catch (error) {
-          console.error('Failed to create node:', error);
-        }
-      }
-
-      for (const edgeData of analysisResult.edges) {
-        try {
-          const edge = await storage.createEdge(edgeData);
-          if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
-            this.graph.addEdge(
-              edge.sourceId.toString(),
-              edge.targetId.toString(),
-              { ...edge }
-            );
-          }
-        } catch (error) {
-          console.error('Failed to create edge:', error);
-        }
-      }
-
-      const totalTime = performance.now() - startTime;
-      console.log('Multimodal expansion complete:', {
-        processingTime: `${totalTime.toFixed(2)}ms`,
-        nodesAdded: this.graph.order - currentNodes.length,
-        edgesAdded: this.graph.size - this.graph.edges().length,
-        imageNodes: analysisResult.nodes.filter(n => n.metadata?.imageUrl).length
-      });
-
-      return this.calculateMetrics();
-    } finally {
-      this.isExpanding = false;
-    }
-  }
-
   private async validateGraphConsistency(): Promise<{
     isValid: boolean;
     anomalies: Array<{
@@ -843,6 +756,82 @@ export class GraphManager {
     console.log('Graph repair complete');
   }
 
+  private async expandWithSemantics(content: {
+    text: string;
+    images?: Array<{ data: string; type: string; }>;
+  }): Promise<GraphData> {
+    if (this.isExpanding) {
+      console.log('Waiting for ongoing expansion to complete');
+      await this.expandPromise;
+      return this.calculateMetrics();
+    }
+
+    try {
+      this.isExpanding = true;
+      console.log('Starting semantic expansion with content:', {
+        hasText: !!content.text,
+        imageCount: content.images?.length || 0,
+        textLength: content.text.length
+      });
+
+      // Get current nodes
+      const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
+        ...this.graph.getNodeAttributes(nodeId),
+        id: parseInt(nodeId)
+      })) as Node[];
+
+      const startTime = performance.now();
+
+      // Perform semantic analysis
+      const analysisResult = await semanticAnalysis.analyzeContent(content, currentNodes);
+      console.log('Semantic analysis complete:', {
+        newNodes: analysisResult.nodes.length,
+        newEdges: analysisResult.edges.length,
+        reasoning: analysisResult.reasoning,
+        processingTime: `${(performance.now() - startTime).toFixed(2)}ms`
+      });
+
+      // Add new nodes and edges
+      for (const nodeData of analysisResult.nodes) {
+        try {
+          const node = await storage.createNode(nodeData);
+          if (!this.graph.hasNode(node.id.toString())) {
+            this.graph.addNode(node.id.toString(), { ...node });
+          }
+        } catch (error) {
+          console.error('Failed to create node:', error);
+        }
+      }
+
+      for (const edgeData of analysisResult.edges) {
+        try {
+          const edge = await storage.createEdge(edgeData);
+          if (!this.graph.hasEdge(edge.sourceId.toString(), edge.targetId.toString())) {
+            this.graph.addEdge(
+              edge.sourceId.toString(),
+              edge.targetId.toString(),
+              { ...edge }
+            );
+          }
+        } catch (error) {
+          console.error('Failed to create edge:', error);
+        }
+      }
+
+      const totalTime = performance.now() - startTime;
+      console.log('Multimodal expansion complete:', {
+        processingTime: `${totalTime.toFixed(2)}ms`,
+        nodesAdded: this.graph.order - currentNodes.length,
+        edgesAdded: this.graph.size - this.graph.edges().length,
+        imageNodes: analysisResult.nodes.filter(n => n.metadata?.imageUrl).length
+      });
+
+      return this.calculateMetrics();
+    } finally {
+      this.isExpanding = false;
+    }
+  }
+
   private countDisconnectedNodes(): number {
     let count = 0;
     this.graph.forEachNode((nodeId: string) => {
@@ -852,118 +841,11 @@ export class GraphManager {
     });
     return count;
   }
-
-  async reconnectDisconnectedNodes(): Promise<GraphData> {
-    console.log('Starting reconnection of disconnected nodes');
-    const disconnectedNodeIds = new Set<string>();
-
-    // Store initial state for verification
-    const initialState = {
-      edges: this.graph.size,
-      edgeList: Array.from(this.graph.edges())
-    };
-
-    // Identify disconnected nodes
-    this.graph.forEachNode((nodeId: string) => {
-      if (this.graph.degree(nodeId) === 0) {
-        disconnectedNodeIds.add(nodeId);
-        console.log('Found disconnected node:', {
-          id: nodeId,
-          label: this.graph.getNodeAttributes(nodeId).label
-        });
-      }
-    });
-
-    if (disconnectedNodeIds.size === 0) {
-      console.log('No disconnected nodes found');
-      return this.calculateMetrics();
-    }
-
-    console.log(`Found ${disconnectedNodeIds.size} disconnected nodes`);
-
-    // Group nodes by type for more meaningful connections
-    const nodesByType = new Map<string, string[]>();
-    disconnectedNodeIds.forEach(nodeId => {
-      const node = this.graph.getNodeAttributes(nodeId);
-      if (!nodesByType.has(node.type)) {
-        nodesByType.set(node.type, []);
-      }
-      nodesByType.get(node.type)!.push(nodeId);
-    });
-
-    let reconnectionAttempts = 0;
-    let reconnectedCount = 0;
-
-    // Connect nodes of similar types
-    for (const [type, nodes] of nodesByType.entries()) {
-      console.log(`Processing nodes of type: ${type}`);
-
-      for (const nodeId of nodes) {
-        try {
-          // Find a suitable connected node to link to
-          let targetNodeId: string | null = null;
-          this.graph.forEachNode((potentialTarget: string) => {
-            if (
-              !disconnectedNodeIds.has(potentialTarget) &&
-              this.graph.getNodeAttributes(potentialTarget).type === type &&
-              !targetNodeId &&
-              potentialTarget !== nodeId
-            ) {
-              targetNodeId = potentialTarget;
-            }
-          });
-
-          if (targetNodeId) {
-            reconnectionAttempts++;
-            const sourceNode = this.graph.getNodeAttributes(nodeId);
-            const targetNode = this.graph.getNodeAttributes(targetNodeId);
-
-            // Create edge in database first
-            const edge = await storage.createEdge({
-              sourceId: parseInt(nodeId),
-              targetId: parseInt(targetNodeId),
-              label: "related_to",
-              weight: 1
-            });
-
-            // Then add edge to graph if it doesn't exist
-            if (!this.graph.hasEdge(nodeId, targetNodeId)) {
-              this.graph.addEdge(nodeId, targetNodeId, { ...edge });
-              reconnectedCount++;
-
-              console.log('Connected nodes:', {
-                source: { id: nodeId, label: sourceNode.label },
-                target: { id: targetNodeId, label: targetNode.label }
-              });
-            }
-          }
-        } catch (error) {
-          console.error('Failed to connect node:', {
-            nodeId,
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
-      }
-    }
-
-    // Verify edge preservation
-    const finalState = {
-      edges: this.graph.size,
-      edgeList: Array.from(this.graph.edges())
-    };
-
-    console.log('Reconnection complete:', {
-      initialEdges: initialState.edges,
-      finalEdges: finalState.edges,
-      reconnectionAttempts,
-      reconnectedCount,
-      remainingDisconnected: this.countDisconnectedNodes(),
-      edgesPreserved: initialState.edgeList.every(edge => finalState.edgeList.includes(edge))
-    });
-
-    // Calculate final metrics
-    return this.calculateMetrics();
-  }
 }
 
 export const graphManager = new GraphManager();
+
+//Necessary function for connected components (needs to be imported or defined)
+function connectedComponents(graph:any): any[] {
+  throw new Error("connectedComponents function is missing, needs to be implemented or imported")
+}

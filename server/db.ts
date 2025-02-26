@@ -1,3 +1,7 @@
+// This file has been deprecated. Database functionality has been moved to FastAPI implementation.
+// Please use the Python SQLAlchemy/FastAPI implementation instead of Node.js database connections.
+
+// Original configuration kept for reference:
 import { Pool, neonConfig } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-serverless';
 import ws from "ws";
@@ -11,5 +15,6 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-export const db = drizzle({ client: pool, schema });
+// Deprecated: Do not use these exports
+export const pool = undefined;
+export const db = undefined;

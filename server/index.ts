@@ -1,1 +1,1 @@
-// This file has been deprecated. The server functionality has been moved to main.py
+// This file is deprecated and should be deleted. All server functionality has been moved to Python FastAPI implementation.
