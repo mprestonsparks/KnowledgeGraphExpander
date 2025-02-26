@@ -16,7 +16,6 @@ export class GraphManager {
   private isExpanding: boolean = false;
   private expandPromise: Promise<void> | null = null;
   private currentIteration: number = 0;
-  private maxIterations: number = process.env.NODE_ENV === 'test' ? 1 : 1000;
   private semanticClustering: SemanticClusteringService;
 
   constructor() {
@@ -54,7 +53,7 @@ export class GraphManager {
     });
   }
 
-  async expand(prompt: string): Promise<GraphData> {
+  async expand(prompt: string, maxIterations: number = 10): Promise<GraphData> {
     if (this.expandPromise) {
       console.log('Waiting for ongoing expansion to complete');
       await this.expandPromise;
@@ -64,8 +63,9 @@ export class GraphManager {
     try {
       this.isExpanding = true;
       console.log('Starting expansion with prompt:', prompt);
+      this.currentIteration = 0;
 
-      this.expandPromise = this.performIterativeExpansion(prompt);
+      this.expandPromise = this.performIterativeExpansion(prompt, maxIterations);
       await this.expandPromise;
 
       return this.calculateMetrics();
@@ -180,12 +180,12 @@ export class GraphManager {
     };
   }
 
-  private async performIterativeExpansion(initialPrompt: string): Promise<void> {
+  private async performIterativeExpansion(initialPrompt: string, maxIterations: number): Promise<void> {
     let currentPrompt = initialPrompt;
     this.currentIteration = 0;
 
-    while (this.currentIteration < this.maxIterations) {
-      console.log(`Starting iteration ${this.currentIteration + 1}/${this.maxIterations}`);
+    while (this.currentIteration < maxIterations) {
+      console.log(`Starting iteration ${this.currentIteration + 1}/${maxIterations}`);
       console.log('Current prompt:', currentPrompt);
 
       try {

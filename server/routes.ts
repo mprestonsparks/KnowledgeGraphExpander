@@ -65,7 +65,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post('/api/graph/expand', async (req, res) => {
-    const schema = z.object({ prompt: z.string() });
+    const schema = z.object({
+      prompt: z.string(),
+      maxIterations: z.number().min(1).max(100).default(10)
+    });
     const result = schema.safeParse(req.body);
 
     if (!result.success) {
@@ -73,7 +76,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const updatedGraph = await graphManager.expand(result.data.prompt);
+      const { prompt, maxIterations } = result.data;
+      console.log('Starting graph expansion:', {
+        prompt,
+        maxIterations,
+        connectedClients: wss.clients.size
+      });
+
+      const updatedGraph = await graphManager.expand(prompt, maxIterations);
       console.log('Graph expanded, broadcasting update');
       broadcastUpdate(updatedGraph);
       res.json(updatedGraph);
@@ -179,11 +189,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // First perform semantic analysis
       const semanticResult = await graphManager.expandWithSemantics(result.data.content);
       console.log('Initial semantic analysis complete');
-      
+
       // Then perform recursive expansion
       const expandedGraph = await graphManager.expand(result.data.content);
       console.log('Recursive expansion complete');
-      
+
       // Broadcast final state after both operations
       broadcastUpdate(expandedGraph);
       res.json(expandedGraph);

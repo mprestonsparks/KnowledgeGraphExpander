@@ -4,6 +4,7 @@ import type { Core, ElementDefinition } from "cytoscape";
 import { type GraphData, type ClusterResult } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { RefreshCcw } from "lucide-react";
+import { wsClient } from "@/lib/websocket";
 
 interface GraphViewerProps {
   data: GraphData & { clusters?: ClusterResult[] };
@@ -206,6 +207,25 @@ export function GraphViewer({ data }: GraphViewerProps) {
 
     layout.run();
   };
+
+  // Handle WebSocket updates
+  useEffect(() => {
+    console.log('Setting up WebSocket subscription');
+    const unsubscribe = wsClient.subscribe((newData) => {
+      console.log('Received graph update via WebSocket:', {
+        nodes: newData.nodes.length,
+        edges: newData.edges?.length || 0
+      });
+      if (cyRef.current) {
+        refreshGraph();
+      }
+    });
+
+    return () => {
+      console.log('Cleaning up WebSocket subscription');
+      unsubscribe();
+    };
+  }, []);
 
   // Refresh graph when data changes
   useEffect(() => {

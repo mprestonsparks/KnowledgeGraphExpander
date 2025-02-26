@@ -6,9 +6,12 @@ import { Loader2 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { expandGraph, reconnectNodes, reapplyClustering } from "@/lib/graph";
 import { queryClient } from "@/lib/queryClient";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export function ControlPanel() {
   const [input, setInput] = useState("");
+  const [iterationCount, setIterationCount] = useState("10");
 
   // Combined mutation for both expand and analyze
   const graphMutation = useMutation({
@@ -26,7 +29,7 @@ export function ControlPanel() {
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return response.json();
       } else {
-        return expandGraph(content);
+        return expandGraph(content, parseInt(iterationCount));
       }
     },
     onSuccess: () => {
@@ -72,6 +75,23 @@ export function ControlPanel() {
             onChange={(e) => setInput(e.target.value)}
             disabled={graphMutation.isPending}
           />
+
+          {!isLongInput && (
+            <div className="flex items-center space-x-2">
+              <Label htmlFor="iterations">Iterations:</Label>
+              <Input
+                id="iterations"
+                type="number"
+                value={iterationCount}
+                onChange={(e) => setIterationCount(e.target.value)}
+                className="w-24"
+                min="1"
+                max="100"
+                disabled={graphMutation.isPending}
+              />
+            </div>
+          )}
+
           <Button
             className="w-full"
             onClick={() => graphMutation.mutate(input)}

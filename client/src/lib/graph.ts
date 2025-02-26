@@ -8,7 +8,7 @@ export async function getGraphData(): Promise<GraphData> {
   console.log('Received graph data:', {
     nodes: data.nodes.length,
     edges: data.edges.length,
-    edgeDetails: data.edges.map(e => ({
+    edgeDetails: data.edges.map((e: any) => ({
       id: e.id,
       source: e.sourceId,
       target: e.targetId,
@@ -24,8 +24,11 @@ export async function getGraphData(): Promise<GraphData> {
   return data;
 }
 
-export async function expandGraph(prompt: string): Promise<GraphData> {
-  const response = await apiRequest("POST", "/api/graph/expand", { prompt });
+export async function expandGraph(prompt: string, maxIterations: number = 10): Promise<GraphData> {
+  const response = await apiRequest("POST", "/api/graph/expand", { 
+    prompt,
+    maxIterations 
+  });
   return response.json();
 }
 
@@ -36,7 +39,7 @@ export async function reconnectNodes(): Promise<GraphData> {
   console.log('Received reconnected graph data:', {
     nodes: data.nodes.length,
     edges: data.edges.length,
-    edgeDetails: data.edges.map(e => ({
+    edgeDetails: data.edges.map((e: any) => ({
       id: e.id,
       source: e.sourceId,
       target: e.targetId,
@@ -55,7 +58,7 @@ export async function reapplyClustering(): Promise<GraphData> {
   console.log('Received updated cluster data:', {
     clusters: data.clusters?.length,
     edges: data.edges.length,
-    edgeDetails: data.edges.map(e => ({
+    edgeDetails: data.edges.map((e: any) => ({
       id: e.id,
       source: e.sourceId,
       target: e.targetId,
