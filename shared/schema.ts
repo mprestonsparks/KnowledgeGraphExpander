@@ -42,12 +42,46 @@ export interface ClusterMetadata {
   centroidNode: string;
   semanticTheme: string;
   coherenceScore: number;
+  multimodalContext?: {
+    imageUrl?: string;
+    imageDescription?: string;
+    documentContext?: string;
+  };
 }
 
 export interface ClusterResult {
   clusterId: number;
   nodes: string[];
   metadata: ClusterMetadata;
+}
+
+// Scale-free network analysis types
+export interface HubNode {
+  id: number;
+  degree: number;
+  influence: number;
+}
+
+export interface BridgingNode {
+  id: number;
+  communities: number;
+  betweenness: number;
+}
+
+export interface ScaleFreeness {
+  powerLawExponent: number;
+  fitQuality: number;
+  hubNodes: HubNode[];
+  bridgingNodes: BridgingNode[];
+}
+
+// Relationship suggestion types
+export interface RelationshipSuggestion {
+  sourceId: number;
+  targetId: number;
+  label: string;
+  confidence: number;
+  explanation: string;
 }
 
 export type GraphData = {
@@ -57,5 +91,8 @@ export type GraphData = {
     betweenness: Record<number, number>;
     eigenvector: Record<number, number>;
     degree: Record<number, number>;
+    scaleFreeness: ScaleFreeness;
   };
+  clusters?: ClusterResult[];
+  suggestions?: RelationshipSuggestion[];
 };

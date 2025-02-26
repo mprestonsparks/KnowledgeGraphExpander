@@ -1,5 +1,5 @@
 import Graph from "graphology";
-import { centrality } from "graphology-metrics";
+import { centrality, topology } from "graphology-metrics";
 import { type Node, type Edge, type GraphData, type InsertEdge, type InsertNode } from "@shared/schema";
 import { storage } from "./storage";
 import { expandGraph } from "./openai_client";
@@ -69,6 +69,16 @@ export class GraphManager {
 
       this.expandPromise = this.performIterativeExpansion(prompt, maxIterations);
       await this.expandPromise;
+
+      // Validate and repair graph after expansion
+      console.log('Validating graph consistency');
+      const { isValid, anomalies } = await this.validateGraphConsistency();
+
+      if (!isValid) {
+        console.log('Detected anomalies:', anomalies);
+        await this.repairGraphAnomalies(anomalies);
+        console.log('Graph repair complete');
+      }
 
       return this.calculateMetrics();
     } finally {
@@ -327,6 +337,11 @@ export class GraphManager {
   private calculateMetrics(): GraphDataWithClusters {
     console.log('Starting metrics calculation');
 
+    // Calculate scale-free network metrics
+    const degreeDistribution = topology.degreePowerLaw(this.graph);
+    const hubNodes = this.identifyHubs();
+    const bridgingNodes = this.identifyBridgingNodes();
+
     // Store initial edge count and data for verification
     const initialEdgeCount = this.graph.size;
     const initialEdges = Array.from(this.graph.edges()).map(edgeId => {
@@ -404,10 +419,53 @@ export class GraphManager {
         eigenvector: Object.fromEntries(
           Object.entries(eigenvector).map(([k, v]) => [parseInt(k), v])
         ),
-        degree
+        degree,
+        scaleFreeness: {
+          powerLawExponent: degreeDistribution.alpha,
+          fitQuality: degreeDistribution.r2,
+          hubNodes: hubNodes.map(node => ({
+            id: parseInt(node),
+            degree: this.graph.degree(node),
+            influence: betweenness[node]
+          })),
+          bridgingNodes: bridgingNodes.map(node => ({
+            id: parseInt(node),
+            communities: Array.from(this.graph.neighbors(node)).length,
+            betweenness: betweenness[node]
+          }))
+        }
       },
       clusters
     };
+  }
+
+  private identifyHubs(): string[] {
+    // Identify nodes with significantly higher degree than average
+    const degrees = Array.from(this.graph.nodes()).map(node => ({
+      id: node,
+      degree: this.graph.degree(node)
+    }));
+
+    const avgDegree = degrees.reduce((sum, n) => sum + n.degree, 0) / degrees.length;
+    const stdDev = Math.sqrt(
+      degrees.reduce((sum, n) => sum + Math.pow(n.degree - avgDegree, 2), 0) / degrees.length
+    );
+
+    // Consider nodes with degree > avg + 2*stddev as hubs
+    return degrees
+      .filter(n => n.degree > avgDegree + 2 * stdDev)
+      .map(n => n.id);
+  }
+
+  private identifyBridgingNodes(): string[] {
+    const betweenness = centrality.betweenness(this.graph);
+    const avgBetweenness = Object.values(betweenness)
+      .reduce((sum, val) => sum + val, 0) / Object.keys(betweenness).length;
+
+    // Nodes with high betweenness are likely bridge nodes
+    return Object.entries(betweenness)
+      .filter(([_, value]) => value > 2 * avgBetweenness)
+      .map(([node, _]) => node);
   }
 
   private countDisconnectedNodes(): number {
@@ -592,6 +650,292 @@ export class GraphManager {
     } finally {
       this.isExpanding = false;
     }
+  }
+
+  private async validateGraphConsistency(): Promise<{
+    isValid: boolean;
+    anomalies: Array<{
+      type: 'disconnected' | 'inconsistent' | 'redundant';
+      nodeIds: number[];
+      description: string;
+    }>;
+  }> {
+    console.log('Starting graph consistency validation');
+    const anomalies = [];
+
+    // Check for disconnected subgraphs
+    const components = connectedComponents(this.graph);
+    console.log('Found graph components:', {
+      count: components.length,
+      sizes: components.map(c => c.length)
+    });
+
+    if (components.length > 1) {
+      const disconnectedNodes = components.slice(1).flat().map(id => parseInt(id));
+      console.log('Detected disconnected subgraphs:', {
+        mainComponentSize: components[0].length,
+        disconnectedNodes
+      });
+
+      anomalies.push({
+        type: 'disconnected',
+        nodeIds: disconnectedNodes,
+        description: 'Disconnected subgraphs detected'
+      });
+    }
+
+    // Check for semantic inconsistencies using node clusters
+    const clusters = this.semanticClustering.clusterNodes();
+    console.log('Analyzing semantic clusters:', {
+      clusterCount: clusters.length,
+      clusterSizes: clusters.map(c => c.nodes.length)
+    });
+
+    for (const cluster of clusters) {
+      const clusterNodes = cluster.nodes.map(id => parseInt(id));
+      const semanticTheme = cluster.metadata.semanticTheme;
+      console.log('Analyzing cluster:', {
+        clusterId: cluster.clusterId,
+        theme: semanticTheme,
+        nodeCount: clusterNodes.length
+      });
+
+      // Analyze relationships within cluster
+      for (const nodeId of clusterNodes) {
+        const neighbors = Array.from(this.graph.neighbors(nodeId.toString()));
+        const neighborNodes = neighbors.map(id => parseInt(id));
+
+        // Find edges that connect to semantically unrelated nodes
+        const unrelatedConnections = neighborNodes.filter(neighborId => {
+          const neighborCluster = clusters.find(c =>
+            c.nodes.includes(neighborId.toString())
+          );
+          return neighborCluster &&
+            neighborCluster.metadata.semanticTheme !== semanticTheme &&
+            neighborCluster.metadata.coherenceScore < 0.3;
+        });
+
+        if (unrelatedConnections.length > 0) {
+          console.log('Found potentially inconsistent relationships:', {
+            nodeId,
+            unrelatedConnections,
+            semanticTheme
+          });
+
+          anomalies.push({
+            type: 'inconsistent',
+            nodeIds: [nodeId, ...unrelatedConnections],
+            description: `Potentially inconsistent relationships detected in cluster ${cluster.clusterId}`
+          });
+        }
+      }
+    }
+
+    // Check for redundant edges
+    const edges = Array.from(this.graph.edges());
+    const redundantPairs = new Map<string, Edge[]>();
+
+    edges.forEach(edgeId => {
+      const edge = this.graph.getEdgeAttributes(edgeId);
+      const key = `${edge.sourceId}-${edge.targetId}`;
+      if (!redundantPairs.has(key)) {
+        redundantPairs.set(key, []);
+      }
+      redundantPairs.get(key)!.push(edge);
+    });
+
+    let redundantEdgeCount = 0;
+    redundantPairs.forEach((edges, key) => {
+      if (edges.length > 1) {
+        const [source, target] = key.split('-').map(id => parseInt(id));
+        console.log('Found redundant edges:', {
+          source,
+          target,
+          edgeCount: edges.length,
+          edges: edges.map(e => ({
+            id: e.id,
+            label: e.label,
+            weight: e.weight
+          }))
+        });
+
+        redundantEdgeCount += edges.length - 1;
+        anomalies.push({
+          type: 'redundant',
+          nodeIds: [source, target],
+          description: `Multiple edges between nodes detected`
+        });
+      }
+    });
+
+    console.log('Validation complete:', {
+      anomalyCount: anomalies.length,
+      anomalyTypes: anomalies.map(a => a.type),
+      redundantEdgeCount
+    });
+
+    return {
+      isValid: anomalies.length === 0,
+      anomalies
+    };
+  }
+
+  private async repairGraphAnomalies(anomalies: Array<{
+    type: 'disconnected' | 'inconsistent' | 'redundant';
+    nodeIds: number[];
+    description: string;
+  }>): Promise<void> {
+    console.log('Starting graph repair for anomalies:', {
+      count: anomalies.length,
+      types: anomalies.map(a => a.type)
+    });
+
+    for (const anomaly of anomalies) {
+      console.log('Repairing anomaly:', {
+        type: anomaly.type,
+        nodeIds: anomaly.nodeIds,
+        description: anomaly.description
+      });
+
+      switch (anomaly.type) {
+        case 'disconnected': {
+          const mainComponent = connectedComponents(this.graph)[0];
+          const mainComponentNode = mainComponent[0];
+
+          console.log('Repairing disconnected nodes:', {
+            mainComponentNode,
+            nodesToConnect: anomaly.nodeIds
+          });
+
+          for (const nodeId of anomaly.nodeIds) {
+            try {
+              const edge = await storage.createEdge({
+                sourceId: parseInt(mainComponentNode),
+                targetId: nodeId,
+                label: 'connected_to',
+                weight: 1
+              });
+
+              this.graph.addEdge(
+                mainComponentNode,
+                nodeId.toString(),
+                { ...edge }
+              );
+
+              console.log('Connected node to main component:', {
+                nodeId,
+                mainComponentNode,
+                edgeId: edge.id
+              });
+            } catch (error) {
+              console.error('Failed to repair disconnected node:', {
+                nodeId,
+                error: error instanceof Error ? error.message : String(error)
+              });
+            }
+          }
+          break;
+        }
+
+        case 'inconsistent': {
+          const [sourceId, ...targetIds] = anomaly.nodeIds;
+          const sourceNode = this.graph.getNodeAttributes(sourceId.toString());
+          const targetNodes = targetIds.map(id =>
+            this.graph.getNodeAttributes(id.toString())
+          );
+
+          console.log('Validating semantic relationships:', {
+            sourceNode: {
+              id: sourceId,
+              label: sourceNode.label
+            },
+            targetNodes: targetNodes.map(n => ({
+              id: n.id,
+              label: n.label
+            }))
+          });
+
+          try {
+            const analysis = await semanticAnalysis.validateRelationships(
+              sourceNode,
+              targetNodes
+            );
+
+            console.log('Relationship validation results:', {
+              sourceId,
+              confidenceScores: analysis.confidenceScores,
+              reasoning: analysis.reasoning
+            });
+
+            for (const targetId of targetIds) {
+              const edgeId = this.graph.edge(
+                sourceId.toString(),
+                targetId.toString()
+              );
+              if (edgeId) {
+                const confidence = analysis.confidenceScores[targetId] || 0;
+                this.graph.setEdgeAttribute(edgeId, 'weight', confidence);
+                console.log('Updated edge weight based on semantic confidence:', {
+                  edgeId,
+                  sourceId,
+                  targetId,
+                  newWeight: confidence
+                });
+              }
+            }
+          } catch (error) {
+            console.error('Failed to validate relationships:', {
+              sourceId,
+              targetIds,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+          break;
+        }
+
+        case 'redundant': {
+          const [sourceId, targetId] = anomaly.nodeIds;
+          const edges = Array.from(this.graph.edges())
+            .filter(edgeId => {
+              const edge = this.graph.getEdgeAttributes(edgeId);
+              return edge.sourceId === sourceId && edge.targetId === targetId;
+            })
+            .map(edgeId => ({
+              id: edgeId,
+              ...this.graph.getEdgeAttributes(edgeId)
+            }))
+            .sort((a, b) => b.weight - a.weight);
+
+          console.log('Merging redundant edges:', {
+            sourceId,
+            targetId,
+            edgeCount: edges.length,
+            edges: edges.map(e => ({
+              id: e.id,
+              weight: e.weight
+            }))
+          });
+
+          // Keep the edge with highest weight, remove others
+          const keptEdge = edges[0];
+          console.log('Keeping edge with highest weight:', {
+            edgeId: keptEdge.id,
+            weight: keptEdge.weight
+          });
+
+          for (let i = 1; i < edges.length; i++) {
+            console.log('Removing redundant edge:', {
+              edgeId: edges[i].id,
+              weight: edges[i].weight
+            });
+            this.graph.dropEdge(edges[i].id);
+          }
+          break;
+        }
+      }
+    }
+
+    console.log('Graph repair complete');
   }
 }
 

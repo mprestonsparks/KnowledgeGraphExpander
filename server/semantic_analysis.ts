@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { Node, Edge, InsertNode, InsertEdge } from "@shared/schema";
+import type { Node, Edge, InsertNode, InsertEdge, RelationshipSuggestion } from "@shared/schema";
 
 // the newest Anthropic model is "claude-3-5-sonnet-20241022" which was released October 22, 2024
 const anthropic = new Anthropic({
@@ -10,6 +10,11 @@ const anthropic = new Anthropic({
 interface SemanticAnalysisResult {
   nodes: InsertNode[];
   edges: InsertEdge[];
+  reasoning: string;
+}
+
+interface ValidationResult {
+  confidenceScores: Record<number, number>;
   reasoning: string;
 }
 
@@ -71,14 +76,78 @@ Rules:
     }
   }
 
-  async suggestRelationships(nodes: Node[]): Promise<Edge[]> {
+  async validateRelationships(sourceNode: Node, targetNodes: Node[]): Promise<ValidationResult> {
+    try {
+      const systemPrompt = `You are a semantic relationship validator. Analyze the connections between the source node and target nodes.
+
+Important: Your response must be valid JSON in this exact format:
+{
+  "confidenceScores": { [nodeId: number]: number },
+  "reasoning": string
+}
+
+Rules:
+1. Each confidence score should be between 0 and 1
+2. Higher scores indicate stronger semantic relationships
+3. Include reasoning about relationship validity
+4. Response must be pure JSON - no explanation text before or after`;
+
+      const response = await anthropic.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        messages: [
+          {
+            role: "user",
+            content: `${systemPrompt}
+
+Source Node:
+${JSON.stringify(sourceNode, null, 2)}
+
+Target Nodes:
+${JSON.stringify(targetNodes, null, 2)}
+
+Analyze the semantic coherence and validity of relationships between the source node and each target node.`
+          }
+        ],
+        max_tokens: 1024
+      });
+
+      const responseText = response.content[0].text.trim();
+      let parsedResponse;
+
+      try {
+        parsedResponse = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse validation response:', responseText);
+        throw new Error('Invalid JSON response from relationship validation');
+      }
+
+      return {
+        confidenceScores: parsedResponse.confidenceScores,
+        reasoning: parsedResponse.reasoning
+      };
+    } catch (error) {
+      console.error('Failed to validate relationships:', error);
+      throw new Error('Failed to validate relationships');
+    }
+  }
+
+  async suggestRelationships(nodes: Node[]): Promise<RelationshipSuggestion[]> {
     try {
       const prompt = `Given these knowledge graph nodes, suggest meaningful relationships between them. 
-Output must be a valid JSON array of edges in this format:
-[{ "sourceId": number, "targetId": number, "label": string, "weight": number }]
+Output must be a valid JSON array in this format:
+[{
+  "sourceId": number,
+  "targetId": number,
+  "label": string,
+  "confidence": number,
+  "explanation": string
+}]
 
-Only suggest high-confidence relationships.
-Response must be pure JSON - no explanation text before or after.
+Rules:
+1. Only suggest high-confidence relationships
+2. Include detailed explanations for each suggestion
+3. Confidence scores should be between 0 and 1
+4. Response must be pure JSON - no explanation text before or after
 
 Nodes:
 ${JSON.stringify(nodes, null, 2)}`;
@@ -104,10 +173,7 @@ ${JSON.stringify(nodes, null, 2)}`;
         throw new Error('Invalid JSON response from relationship suggestions');
       }
 
-      return suggestions.map((edge: Edge, index: number) => ({
-        ...edge,
-        id: index + 1
-      }));
+      return suggestions;
     } catch (error) {
       console.error('Failed to suggest relationships:', error);
       throw new Error('Failed to suggest relationships');
