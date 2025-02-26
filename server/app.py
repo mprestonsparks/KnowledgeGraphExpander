@@ -1,27 +1,61 @@
 import os
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 import networkx as nx
 from scipy import stats
 import logging
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Knowledge Graph API")
 
-# Configure CORS
+# Configure CORS - ensure all origins are allowed during development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests"""
+    logger.info(f"Incoming request: {request.method} {request.url.path}")
+    try:
+        response = await call_next(request)
+        logger.info(f"Response status: {response.status_code}")
+        return response
+    except Exception as e:
+        logger.error(f"Request error: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"}
+        )
+
+@app.get("/")
+async def root():
+    """Root endpoint that provides API information"""
+    logger.info("Handling request to root endpoint")
+    return {
+        "message": "Knowledge Graph API Server",
+        "version": "1.0",
+        "endpoints": {
+            "/": "This information",
+            "/health": "Health check",
+            "/graph": "Graph analysis service information",
+            "/graph/analyze": "Analyze graph metrics"
+        }
+    }
 
 # Pydantic models for request/response validation
 class Node(BaseModel):
@@ -63,34 +97,16 @@ class GraphMetrics(BaseModel):
     degree: Dict[int, float]
     scaleFreeness: ScaleFreeness
 
-@app.get("/")
-async def root():
-    """
-    Root endpoint that provides API information.
-    """
-    return {
-        "message": "Knowledge Graph API Server",
-        "version": "1.0",
-        "endpoints": {
-            "/": "This information",
-            "/health": "Health check",
-            "/graph": "Graph analysis service information",
-            "/graph/analyze": "Analyze graph metrics"
-        }
-    }
-
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint to verify the service is running.
-    """
+    """Health check endpoint"""
+    logger.info("Handling health check request")
     return {"status": "healthy"}
 
 @app.get("/graph")
 async def get_graph():
-    """
-    Get graph analysis service information and supported metrics.
-    """
+    """Get graph analysis service information"""
+    logger.info("Handling graph info request")
     return {
         "status": "healthy",
         "version": "1.0",
@@ -104,9 +120,7 @@ async def get_graph():
 
 @app.post("/graph/analyze")
 async def analyze_graph(graph_data: GraphData) -> GraphMetrics:
-    """
-    Analyze a graph and return its metrics.
-    """
+    """Analyze a graph and return its metrics."""
     try:
         logger.info(f"Received graph analysis request: {len(graph_data.nodes)} nodes, {len(graph_data.edges)} edges")
         G = create_networkx_graph(graph_data)
@@ -232,6 +246,12 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 3000))  # Default to Replit's standard port
+    port = int(os.environ.get("PORT", 3000))
     logger.info(f"Starting FastAPI server on port {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+        access_log=True
+    )
