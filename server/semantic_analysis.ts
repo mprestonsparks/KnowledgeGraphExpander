@@ -17,7 +17,8 @@ export class SemanticAnalysisService {
   async analyzeContent(content: string, existingNodes: Node[]): Promise<SemanticAnalysisResult> {
     try {
       const systemPrompt = `You are a semantic analysis expert. Analyze the following content and extract knowledge graph elements.
-Output in JSON format with the following structure:
+
+Important: Your response must be valid JSON in this exact format:
 {
   "nodes": [{ "label": string, "type": string, "metadata": { "description": string } }],
   "edges": [{ "sourceId": number, "targetId": number, "label": string, "weight": number }],
@@ -28,7 +29,8 @@ Rules:
 1. Node types should be one of: "concept", "entity", "process", "attribute"
 2. Edge labels should describe meaningful relationships
 3. Edge weights should be between 0 and 1
-4. Include semantic reasoning about why these connections were made`;
+4. Include semantic reasoning about why these connections were made
+5. Response must be pure JSON - no explanation text before or after`;
 
       const response = await anthropic.messages.create({
         model: "claude-3-5-sonnet-20241022",
@@ -41,19 +43,27 @@ Rules:
         max_tokens: 1024
       });
 
-      const result = JSON.parse(response.content[0].text);
+      const responseText = response.content[0].text.trim();
+      let parsedResponse;
+
+      try {
+        parsedResponse = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse API response:', responseText);
+        throw new Error('Invalid JSON response from semantic analysis');
+      }
 
       // Add IDs to new nodes starting after the last existing node ID
       const lastNodeId = Math.max(0, ...existingNodes.map(n => n.id));
-      result.nodes = result.nodes.map((node: any, index: number) => ({
+      const nodesWithIds = parsedResponse.nodes.map((node: any, index: number) => ({
         ...node,
         id: lastNodeId + index + 1
       }));
 
       return {
-        nodes: result.nodes,
-        edges: result.edges,
-        reasoning: result.reasoning
+        nodes: nodesWithIds,
+        edges: parsedResponse.edges,
+        reasoning: parsedResponse.reasoning
       };
     } catch (error) {
       console.error('Semantic analysis failed:', error);
@@ -63,23 +73,37 @@ Rules:
 
   async suggestRelationships(nodes: Node[]): Promise<Edge[]> {
     try {
+      const prompt = `Given these knowledge graph nodes, suggest meaningful relationships between them. 
+Output must be a valid JSON array of edges in this format:
+[{ "sourceId": number, "targetId": number, "label": string, "weight": number }]
+
+Only suggest high-confidence relationships.
+Response must be pure JSON - no explanation text before or after.
+
+Nodes:
+${JSON.stringify(nodes, null, 2)}`;
+
       const response = await anthropic.messages.create({
         model: "claude-3-5-sonnet-20241022",
         messages: [
           {
             role: "user",
-            content: `Given these knowledge graph nodes, suggest meaningful relationships between them. Output as JSON array of edges.
-Each edge should have: sourceId, targetId, label, and weight (0-1).
-Only suggest high-confidence relationships.
-
-Nodes:
-${JSON.stringify(nodes, null, 2)}`
+            content: prompt
           }
         ],
         max_tokens: 1024
       });
 
-      const suggestions = JSON.parse(response.content[0].text);
+      const responseText = response.content[0].text.trim();
+      let suggestions;
+
+      try {
+        suggestions = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse API response:', responseText);
+        throw new Error('Invalid JSON response from relationship suggestions');
+      }
+
       return suggestions.map((edge: Edge, index: number) => ({
         ...edge,
         id: index + 1
