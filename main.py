@@ -234,7 +234,7 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 3000))
+    port = int(os.environ.get("PORT", 5000))  # Changed default port to 5000
     logger.info(f"Starting FastAPI server on port {port}")
     uvicorn.run(
         app,

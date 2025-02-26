@@ -53,6 +53,7 @@
     "cytoscape": "^3.31.0",
     "cytoscape-cose-bilkent": "^4.1.0",
     "date-fns": "^3.6.0",
+    "drizzle-kit": "^0.30.5",
     "embla-carousel-react": "^8.3.0",
     "framer-motion": "^11.13.1",
     "graphology": "^0.26.0",

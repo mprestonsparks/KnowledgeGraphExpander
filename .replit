@@ -1,5 +1,17 @@
-modules = ["nodejs-20", "web", "postgresql-16", "python-3.11", "python3"]
-run = "npm run dev"
+
+
+# Specify which Replit-provided environments/modules you want:
+modules = [
+  "web",            # So you can open the app in a browser preview
+  "python-3.11",    # Python 3.11 support
+  "python3",        # Extra symlinks for python
+  "postgresql-16"   # (Optional) If you plan to use PostgreSQL
+]
+
+# This is the command run when you press "Run"
+run = "python3 main.py"
+
+# Hidden files/folders in file explorer
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
@@ -7,17 +19,11 @@ channel = "stable-24_05"
 
 [deployment]
 deploymentTarget = "cloudrun"
-build = ["npm", "run", "build"]
-run = ["npm", "run", "start"]
+# If you’re using Poetry:
+build = ["poetry", "install"]
+run = ["python3", "main.py"]
 
-[[ports]]
-localPort = 3000
-externalPort = 3000
-
-[[ports]]
-localPort = 5000
-externalPort = 80
-
+# Ports the repl might expose (FastAPI typically defaults to 8000)
 [[ports]]
 localPort = 8000
 externalPort = 8000
@@ -30,21 +36,21 @@ name = "Project"
 mode = "parallel"
 author = "agent"
 
+# Task 1: Start application
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "Start application"
-
-[[workflows.workflow]]
-name = "Start application"
 author = "agent"
 
 [workflows.workflow.metadata]
 agentRequireRestartOnSave = false
 
+# Task 2: Install any needed dependencies
 [[workflows.workflow.tasks]]
 task = "packager.installForAll"
 
+# Task 3: Actually run your FastAPI server
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run dev"
-waitForPort = 5000
+args = "python3 main.py"
+waitForPort = 8000
