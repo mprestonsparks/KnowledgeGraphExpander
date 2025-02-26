@@ -27,7 +27,7 @@ pythonProcess.on('error', (error) => {
 
 // Wait for FastAPI server to be ready
 console.log('Waiting for FastAPI server to start...');
-const waitForFastAPI = new Promise<void>((resolve) => {
+const waitForFastAPI = new Promise<void>((resolve, reject) => {
   const timeout = setTimeout(() => {
     console.warn('FastAPI server startup timeout - proceeding with Express startup');
     resolve(); // Resolve anyway to allow Express to start
@@ -61,6 +61,11 @@ const proxyConfig = {
     res.status(503).json({ error: 'Graph analysis service temporarily unavailable' });
   }
 };
+
+// Add root route handler
+app.get('/', (req: Request, res: Response) => {
+  res.send({ message: "Knowledge Graph API Server" });
+});
 
 // Use proxy for all /api routes
 app.use('/api', createProxyMiddleware(proxyConfig));
@@ -100,7 +105,7 @@ app.use((req, res, next) => {
   try {
     console.log('Starting application setup...');
 
-    // Wait for FastAPI but don't block on it
+    // Wait for FastAPI but don't block forever
     await Promise.race([
       waitForFastAPI,
       new Promise(resolve => setTimeout(resolve, 15000))
