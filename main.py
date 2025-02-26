@@ -8,6 +8,7 @@ import logging
 import networkx as nx
 import numpy as np
 from scipy import stats
+import pathlib
 
 # Configure logging
 logging.basicConfig(
@@ -27,8 +28,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Ensure frontend/dist directory exists
+frontend_path = pathlib.Path("frontend/dist")
+if not frontend_path.exists():
+    logger.warning(f"Directory {frontend_path} does not exist. Creating it...")
+    frontend_path.mkdir(parents=True, exist_ok=True)
+    # Create a temporary index.html if it doesn't exist
+    index_path = frontend_path / "index.html"
+    if not index_path.exists():
+        index_path.write_text("""
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <title>Knowledge Graph System</title>
+            </head>
+            <body>
+                <h1>Knowledge Graph System</h1>
+                <p>The frontend is being built...</p>
+            </body>
+        </html>
+        """)
+
 # Mount the React frontend static files
-app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="react_frontend")
+try:
+    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+    logger.info(f"Successfully mounted static files from {frontend_path}")
+except Exception as e:
+    logger.error(f"Failed to mount static files: {str(e)}")
+    raise
 
 # WebSocket connections store
 class ConnectionManager:

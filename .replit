@@ -1,19 +1,33 @@
-modules = ["web", "python-3.11", "python3", "postgresql-16", "nodejs-20"]
+modules = ["python-3.11", "nodejs-20", "python3"]
 
-run = "cd frontend && npm run build && cd .. && python3 main.py"
+run = "cd frontend && npm install && npm run build && cd .. && python3 main.py"
 
-hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
+hidden = [".config", ".git", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
 
 [deployment]
-deploymentTarget = "cloudrun"
 run = ["python3", "main.py"]
 
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[languages.python]
+pattern = "**/*.py"
+syntax = "python"
+
+[languages.typescript]
+pattern = "**/*.{ts,tsx}"
+syntax = "typescript"
+
+[languages.javascript]
+pattern = "**/*.{js,jsx}"
+syntax = "javascript"
+
+[env]
+PYTHONPATH = "."
 
 [workflows]
 runButton = "Project"
@@ -21,12 +35,8 @@ runButton = "Project"
 [[workflows.workflow]]
 name = "Project"
 mode = "parallel"
-author = "agent"
 
 [[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd frontend && npm install && npm run build && cd .. && python3 main.py"
+name = "Frontend"
+shell = "cd frontend && npm install && npm run build && cd .. && python3 main.py"
 waitForPort = 5000
-
-[workflows.workflow.metadata]
-agentRequireRestartOnSave = false
