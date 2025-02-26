@@ -1,10 +1,5 @@
-import { useEffect } from "react";
+import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { GraphViewer } from "@/components/graph/GraphViewer";
-import { ControlPanel } from "@/components/graph/ControlPanel";
-import { MetricsPanel } from "@/components/graph/MetricsPanel";
-import { wsClient } from "@/lib/websocket";
-import { queryClient } from "@/lib/queryClient";
 import { type GraphData } from "@shared/schema";
 
 export default function Home() {
@@ -12,16 +7,6 @@ export default function Home() {
     queryKey: ["/api/graph"],
     refetchInterval: false
   });
-
-  useEffect(() => {
-    console.log('Setting up WebSocket connection');
-    wsClient.connect();
-
-    return wsClient.subscribe((newData) => {
-      console.log('Received graph update, updating query cache');
-      queryClient.setQueryData(["/api/graph"], newData);
-    });
-  }, []);
 
   if (isLoading || !data) {
     return (
@@ -31,28 +16,25 @@ export default function Home() {
     );
   }
 
-  console.log('Rendering graph with data:', {
-    nodes: data.nodes.length,
-    edges: data.edges.length
-  });
-
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto p-4">
+        <h1 className="text-4xl font-bold mb-8">Knowledge Graph Visualization</h1>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          {/* Left column - Controls and Suggestions */}
+          {/* Left column - Graph Statistics */}
           <div className="lg:col-span-3 space-y-4">
-            <ControlPanel />
+            <div className="p-4 rounded-xl border border-border bg-card">
+              <h2 className="text-xl font-semibold mb-4">Graph Statistics</h2>
+              <p>Nodes: {data.nodes.length}</p>
+              <p>Edges: {data.edges.length}</p>
+            </div>
           </div>
 
-          {/* Main content - Graph Viewer */}
-          <div className="lg:col-span-6 min-h-[calc(100vh-2rem)] rounded-xl border border-border bg-card shadow-md">
-            <GraphViewer data={data} />
-          </div>
-
-          {/* Right column - Metrics */}
-          <div className="lg:col-span-3">
-            <MetricsPanel data={data} />
+          {/* Main content - Graph Visualization */}
+          <div className="lg:col-span-9 min-h-[calc(100vh-2rem)] rounded-xl border border-border bg-card p-4">
+            <p className="text-center text-muted-foreground">
+              Graph visualization will be implemented here
+            </p>
           </div>
         </div>
       </div>
