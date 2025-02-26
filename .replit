@@ -2,7 +2,7 @@ modules = ["python-3.11", "nodejs-20", "python3"]
 
 run = "cd frontend && npm install && npm run build && cd .. && python3 main.py"
 
-hidden = [".config", ".git", "node_modules", "dist"]
+hidden = ["node_modules"]
 
 [nix]
 channel = "stable-24_05"
