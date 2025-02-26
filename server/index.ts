@@ -27,7 +27,7 @@ pythonProcess.on('error', (error) => {
 
 // Wait for FastAPI server to be ready
 console.log('Waiting for FastAPI server to start...');
-const waitForFastAPI = new Promise<void>((resolve, reject) => {
+const waitForFastAPI = new Promise<void>((resolve) => {
   const timeout = setTimeout(() => {
     console.warn('FastAPI server startup timeout - proceeding with Express startup');
     resolve(); // Resolve anyway to allow Express to start
@@ -43,13 +43,16 @@ const waitForFastAPI = new Promise<void>((resolve, reject) => {
   });
 });
 
+// Add root route handler
+app.get('/', (req: Request, res: Response) => {
+  res.send({ message: "Knowledge Graph API Server" });
+});
+
 // Proxy middleware configuration
 const proxyConfig = {
   target: 'http://localhost:8000',
   changeOrigin: true,
-  pathRewrite: {
-    '^/api': '', // Remove /api prefix when forwarding to FastAPI
-  },
+  pathRewrite: undefined, // Don't rewrite paths by default
   onProxyReq: (proxyReq: any, req: Request) => {
     console.log(`Proxying ${req.method} ${req.path} to FastAPI`);
   },
@@ -62,19 +65,17 @@ const proxyConfig = {
   }
 };
 
-// Add root route handler
-app.get('/', (req: Request, res: Response) => {
-  res.send({ message: "Knowledge Graph API Server" });
-});
-
-// Use proxy for all /api routes
-app.use('/api', createProxyMiddleware(proxyConfig));
-
-// Handle /graph route specifically
+// Handle /graph and /graph/* routes directly
 app.use('/graph', createProxyMiddleware({
   ...proxyConfig,
+  // Don't rewrite the path, forward it as-is to FastAPI
+}));
+
+// Handle /api routes with path rewriting
+app.use('/api', createProxyMiddleware({
+  ...proxyConfig,
   pathRewrite: {
-    '^/graph': '/graph', // Direct mapping for /graph endpoints
+    '^/api': '', // Remove /api prefix when forwarding to FastAPI
   }
 }));
 
