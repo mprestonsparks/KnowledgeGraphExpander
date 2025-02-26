@@ -36,7 +36,13 @@ describe("GraphManager", () => {
       metrics: {
         betweenness: { 1: 0.5, 2: 0.5, 3: 0.0 },
         eigenvector: { 1: 0.5, 2: 0.5, 3: 0.0 },
-        degree: { 1: 1, 2: 1, 3: 0 }
+        degree: { 1: 1, 2: 1, 3: 0 },
+        scaleFreeness: {
+          powerLawExponent: 2.1,
+          fitQuality: 0.85,
+          hubNodes: [{ id: 1, degree: 2, influence: 0.8 }],
+          bridgingNodes: [{ id: 2, communities: 2, betweenness: 0.7 }]
+        }
       }
     });
 
@@ -115,6 +121,118 @@ describe("GraphManager", () => {
     expect(result1.nodes).toHaveLength(3); // Original nodes only
     expect(result1.edges).toHaveLength(2); // Original edges only
   }, { timeout: 10000 });
+
+  it("should handle expansion timeout", async () => {
+    await graphManager.initialize();
+
+    // Mock a slow expansion that would trigger timeout
+    vi.mocked(expandGraph).mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 9000)); // Longer than maxProcessingTime
+      return {
+        nodes: [],
+        edges: [],
+        nextQuestion: null
+      };
+    });
+
+    const result = await graphManager.expand("Test timeout", 10);
+
+    // Should return current state without waiting for expansion
+    expect(result.nodes).toHaveLength(mockNodes.length);
+    expect(result.edges).toHaveLength(mockEdges.length);
+  });
+
+  it("should perform multimodal content analysis", async () => {
+    await graphManager.initialize();
+
+    // Mock multimodal analysis response
+    const mockMultimodalResult = {
+      nodes: [{
+        label: "Image Concept",
+        type: "image_concept",
+        metadata: {
+          description: "Test image analysis",
+          imageUrl: "data:image/png;base64,test",
+          imageDescription: "Test image description"
+        }
+      }],
+      edges: [{
+        sourceId: 1,
+        targetId: mockNodes.length + 1,
+        label: "visual_relation",
+        weight: 0.8
+      }],
+      reasoning: "Visual analysis test"
+    };
+
+    vi.mocked(semanticAnalysis.analyzeContent).mockResolvedValue(mockMultimodalResult);
+
+    const result = await graphManager.expandWithSemantics({
+      text: "Test content",
+      images: [{
+        data: "base64_test_image",
+        type: "image/png"
+      }]
+    });
+
+    // Verify multimodal node creation
+    expect(result.nodes).toContainEqual(
+      expect.objectContaining({
+        type: "image_concept",
+        metadata: expect.objectContaining({
+          imageUrl: expect.any(String),
+          imageDescription: expect.any(String)
+        })
+      })
+    );
+
+    // Verify edge creation
+    expect(result.edges).toContainEqual(
+      expect.objectContaining({
+        label: "visual_relation",
+        weight: 0.8
+      })
+    );
+  });
+
+  it("should respect maxIterations in recursive expansion", async () => {
+    await graphManager.initialize();
+
+    const maxIterations = 3;
+    let iterationCount = 0;
+
+    vi.mocked(expandGraph).mockImplementation(async () => {
+      iterationCount++;
+      return {
+        nodes: [{ label: `Test Node ${iterationCount}`, type: "concept", metadata: {} }],
+        edges: [],
+        nextQuestion: iterationCount < maxIterations ? "Next question" : null
+      };
+    });
+
+    await graphManager.expand("Test iterations", maxIterations);
+
+    expect(iterationCount).toBeLessThanOrEqual(maxIterations);
+    expect(expandGraph).toHaveBeenCalledTimes(iterationCount);
+  });
+
+  it("should handle early exit conditions", async () => {
+    await graphManager.initialize();
+
+    const mockEmptyExpansion = {
+      nodes: [],
+      edges: [],
+      nextQuestion: null
+    };
+
+    vi.mocked(expandGraph).mockResolvedValue(mockEmptyExpansion);
+
+    const result = await graphManager.expand("Test early exit", 10);
+
+    // Should exit early due to no expansion data
+    expect(expandGraph).toHaveBeenCalledTimes(1);
+    expect(result.nodes).toHaveLength(mockNodes.length);
+  });
 
   describe("reconnectDisconnectedNodes", () => {
     it("should identify and reconnect disconnected nodes", async () => {
