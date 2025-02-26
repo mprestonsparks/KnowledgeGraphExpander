@@ -55,6 +55,53 @@ export class GraphManager {
     });
   }
 
+  private async detectKnowledgeGaps(): Promise<{
+    disconnectedConcepts: string[];
+    weakConnections: Array<{ source: string; target: string; weight: number }>;
+    underdevelopedThemes: Array<{ theme: string; nodeCount: number; avgCoherence: number }>;
+  }> {
+    console.log('Starting knowledge gap detection');
+
+    // Find disconnected concepts
+    const disconnectedConcepts = Array.from(this.graph.nodes())
+      .filter(nodeId => this.graph.degree(nodeId) === 0)
+      .map(nodeId => this.graph.getNodeAttributes(nodeId).label);
+
+    // Identify weak connections (low weight edges)
+    const weakConnections = Array.from(this.graph.edges())
+      .map(edgeId => {
+        const edge = this.graph.getEdgeAttributes(edgeId);
+        return {
+          source: this.graph.getNodeAttributes(edge.sourceId.toString()).label,
+          target: this.graph.getNodeAttributes(edge.targetId.toString()).label,
+          weight: edge.weight
+        };
+      })
+      .filter(conn => conn.weight < 0.3);
+
+    // Analyze cluster development
+    const clusters = this.semanticClustering.clusterNodes();
+    const underdevelopedThemes = clusters
+      .map(cluster => ({
+        theme: cluster.metadata.semanticTheme,
+        nodeCount: cluster.nodes.length,
+        avgCoherence: cluster.metadata.coherenceScore
+      }))
+      .filter(theme => theme.nodeCount < 3 || theme.avgCoherence < 0.4);
+
+    console.log('Knowledge gap analysis complete:', {
+      disconnectedCount: disconnectedConcepts.length,
+      weakConnectionsCount: weakConnections.length,
+      underdevelopedThemesCount: underdevelopedThemes.length
+    });
+
+    return {
+      disconnectedConcepts,
+      weakConnections,
+      underdevelopedThemes
+    };
+  }
+
   async expand(prompt: string, maxIterations: number = 10): Promise<GraphData> {
     if (this.expandPromise) {
       console.log('Waiting for ongoing expansion to complete');
@@ -67,8 +114,27 @@ export class GraphManager {
       console.log('Starting expansion with prompt:', prompt);
       this.currentIteration = 0;
 
+      // Initial expansion
       this.expandPromise = this.performIterativeExpansion(prompt, maxIterations);
       await this.expandPromise;
+
+      // Knowledge gap analysis
+      const gaps = await this.detectKnowledgeGaps();
+      console.log('Detected knowledge gaps:', gaps);
+
+      // Additional expansion focused on gaps
+      if (gaps.disconnectedConcepts.length > 0 || gaps.underdevelopedThemes.length > 0) {
+        console.log('Starting gap-focused expansion');
+        const gapPrompt = `
+          Analyze and expand upon these areas:
+          Disconnected concepts: ${gaps.disconnectedConcepts.join(', ')}
+          Underdeveloped themes: ${gaps.underdevelopedThemes.map(t => t.theme).join(', ')}
+          ${prompt}
+        `;
+
+        this.expandPromise = this.performIterativeExpansion(gapPrompt, Math.max(3, Math.floor(maxIterations / 3)));
+        await this.expandPromise;
+      }
 
       // Validate and repair graph after expansion
       console.log('Validating graph consistency');
