@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI, WebSocket, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 import logging
@@ -25,6 +26,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount the React frontend static files
+app.mount("/", StaticFiles(directory="frontend/build", html=True), name="react_frontend")
 
 # WebSocket connections store
 class ConnectionManager:
@@ -234,7 +238,7 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 5000))  # Changed default port to 5000
+    port = int(os.environ.get("PORT", 5000))
     logger.info(f"Starting FastAPI server on port {port}")
     uvicorn.run(
         app,
