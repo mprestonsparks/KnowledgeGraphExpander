@@ -1,10 +1,8 @@
 import Graph from "graphology";
-import { centrality, topology } from "graphology-metrics";
 import { type Node, type Edge, type GraphData, type InsertEdge, type InsertNode } from "@shared/schema";
 import { storage } from "./storage";
 import { expandGraph } from "./openai_client";
 import { SemanticClusteringService, type ClusterResult } from "./semantic_clustering";
-import connectedComponents from "graphology-components";
 import { semanticAnalysis } from "./semantic_analysis";
 
 interface GraphDataWithClusters extends GraphData {
@@ -19,8 +17,7 @@ export class GraphManager {
   private maxProcessingTime: number = 8000; // 8 seconds max processing time
   private debugLogging: boolean = process.env.NODE_ENV !== 'production';
   private semanticClustering: SemanticClusteringService;
-  private onUpdate: ((graphData: GraphDataWithClusters) => void) | null = null; // Added onUpdate callback
-
+  private onUpdate: ((graphData: GraphDataWithClusters) => void) | null = null;
 
   constructor() {
     this.graph = new Graph({ type: "directed", multi: false });
@@ -37,71 +34,84 @@ export class GraphManager {
       }
     });
 
-    // Then add edges, checking for duplicates
+    // Then add edges
     edges.forEach(edge => {
       const sourceId = edge.sourceId.toString();
       const targetId = edge.targetId.toString();
 
-      // Only add edge if both nodes exist and edge doesn't already exist
       if (this.graph.hasNode(sourceId) &&
-        this.graph.hasNode(targetId) &&
-        !this.graph.hasEdge(sourceId, targetId)) {
+          this.graph.hasNode(targetId) &&
+          !this.graph.hasEdge(sourceId, targetId)) {
         this.graph.addEdge(sourceId, targetId, { ...edge });
       }
     });
 
     console.log('Graph initialized:', {
       nodes: this.graph.order,
-      edges: this.graph.size,
-      disconnectedNodes: this.countDisconnectedNodes()
+      edges: this.graph.size
     });
   }
 
-  private async detectKnowledgeGaps(): Promise<{
-    disconnectedConcepts: string[];
-    weakConnections: Array<{ source: string; target: string; weight: number }>;
-    underdevelopedThemes: Array<{ theme: string; nodeCount: number; avgCoherence: number }>;
-  }> {
-    console.log('Starting knowledge gap detection');
+  private async calculateMetrics(): Promise<GraphDataWithClusters> {
+    // Get current nodes and edges
+    const nodes = Array.from(this.graph.nodes()).map(nodeId => ({
+      ...this.graph.getNodeAttributes(nodeId),
+      id: parseInt(nodeId)
+    })) as Node[];
 
-    // Find disconnected concepts
-    const disconnectedConcepts = Array.from(this.graph.nodes())
-      .filter(nodeId => this.graph.degree(nodeId) === 0)
-      .map(nodeId => this.graph.getNodeAttributes(nodeId).label);
+    const edges = Array.from(this.graph.edges()).map(edgeId => {
+      const attrs = this.graph.getEdgeAttributes(edgeId);
+      return {
+        ...attrs,
+        id: attrs.id || parseInt(edgeId)
+      };
+    }) as Edge[];
 
-    // Identify weak connections (low weight edges)
-    const weakConnections = Array.from(this.graph.edges())
-      .map(edgeId => {
-        const edge = this.graph.getEdgeAttributes(edgeId);
-        return {
-          source: this.graph.getNodeAttributes(edge.sourceId.toString()).label,
-          target: this.graph.getNodeAttributes(edge.targetId.toString()).label,
-          weight: edge.weight
-        };
-      })
-      .filter(conn => conn.weight < 0.3);
-
-    // Analyze cluster development
+    // Get clusters without modifying edges
     const clusters = this.semanticClustering.clusterNodes();
-    const underdevelopedThemes = clusters
-      .map(cluster => ({
-        theme: cluster.metadata.semanticTheme,
-        nodeCount: cluster.nodes.length,
-        avgCoherence: cluster.metadata.coherenceScore
-      }))
-      .filter(theme => theme.nodeCount < 3 || theme.avgCoherence < 0.4);
 
-    console.log('Knowledge gap analysis complete:', {
-      disconnectedCount: disconnectedConcepts.length,
-      weakConnectionsCount: weakConnections.length,
-      underdevelopedThemesCount: underdevelopedThemes.length
-    });
+    try {
+      // Call FastAPI endpoint for graph analysis
+      const response = await fetch('/api/graph/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ nodes, edges })
+      });
 
-    return {
-      disconnectedConcepts,
-      weakConnections,
-      underdevelopedThemes
-    };
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const metrics = await response.json();
+
+      return {
+        nodes,
+        edges,
+        metrics,
+        clusters
+      };
+    } catch (error) {
+      console.error('Failed to calculate metrics:', error);
+      // Return empty metrics if analysis fails
+      return {
+        nodes,
+        edges,
+        metrics: {
+          betweenness: {},
+          eigenvector: {},
+          degree: {},
+          scaleFreeness: {
+            powerLawExponent: 0,
+            fitQuality: 0,
+            hubNodes: [],
+            bridgingNodes: []
+          }
+        },
+        clusters
+      };
+    }
   }
 
   async expand(prompt: string, maxIterations: number = 10): Promise<GraphData> {
@@ -368,7 +378,7 @@ export class GraphManager {
 
         // If we made changes, calculate metrics and emit update
         if (hasChanges) {
-          const graphData = this.calculateMetrics();
+          const graphData = await this.calculateMetrics();
           if (this.onUpdate) {
             this.onUpdate(graphData);
           }
@@ -419,263 +429,55 @@ export class GraphManager {
     return this.calculateMetrics();
   }
 
-  private calculateMetrics(): GraphDataWithClusters {
-    console.log('Starting metrics calculation');
 
-    // Calculate scale-free network metrics
-    const degreeDistribution = topology.degreePowerLaw(this.graph);
-    const hubNodes = this.identifyHubs();
-    const bridgingNodes = this.identifyBridgingNodes();
+  private detectKnowledgeGaps(): Promise<{
+    disconnectedConcepts: string[];
+    weakConnections: Array<{ source: string; target: string; weight: number }>;
+    underdevelopedThemes: Array<{ theme: string; nodeCount: number; avgCoherence: number }>;
+  }> {
+    console.log('Starting knowledge gap detection');
 
-    // Store initial edge count and data for verification
-    const initialEdgeCount = this.graph.size;
-    const initialEdges = Array.from(this.graph.edges()).map(edgeId => {
-      const attrs = this.graph.getEdgeAttributes(edgeId);
-      return {
-        ...attrs,
-        id: attrs.id || parseInt(edgeId) // Ensure we have a valid numeric ID
-      };
-    });
+    // Find disconnected concepts
+    const disconnectedConcepts = Array.from(this.graph.nodes())
+      .filter(nodeId => this.graph.degree(nodeId) === 0)
+      .map(nodeId => this.graph.getNodeAttributes(nodeId).label);
 
-    console.log('Initial graph state:', {
-      edgeCount: initialEdgeCount,
-      edgeDetails: initialEdges.map(e => ({
-        id: e.id,
-        source: e.sourceId,
-        target: e.targetId,
-        label: e.label
-      }))
-    });
+    // Identify weak connections (low weight edges)
+    const weakConnections = Array.from(this.graph.edges())
+      .map(edgeId => {
+        const edge = this.graph.getEdgeAttributes(edgeId);
+        return {
+          source: this.graph.getNodeAttributes(edge.sourceId.toString()).label,
+          target: this.graph.getNodeAttributes(edge.targetId.toString()).label,
+          weight: edge.weight
+        };
+      })
+      .filter(conn => conn.weight < 0.3);
 
-    const betweenness = centrality.betweenness(this.graph);
-    let eigenvector: Record<string, number> = {};
-
-    try {
-      eigenvector = centrality.eigenvector(this.graph);
-    } catch (error) {
-      console.warn('Failed to calculate eigenvector centrality:', error);
-      this.graph.forEachNode((nodeId: string) => {
-        eigenvector[nodeId] = 0;
-      });
-    }
-
-    const degree: Record<number, number> = {};
-    this.graph.forEachNode((nodeId: string) => {
-      const id = parseInt(nodeId);
-      degree[id] = this.graph.degree(nodeId);
-    });
-
-    // Perform clustering without modifying edges
+    // Analyze cluster development
     const clusters = this.semanticClustering.clusterNodes();
-
-    // Get current nodes
-    const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
-      ...this.graph.getNodeAttributes(nodeId),
-      id: parseInt(nodeId)
-    })) as Node[];
-
-    // Get current edges with proper ID handling
-    const currentEdges = Array.from(this.graph.edges()).map(edgeId => {
-      const attrs = this.graph.getEdgeAttributes(edgeId);
-      return {
-        ...attrs,
-        id: attrs.id || parseInt(edgeId) // Ensure we have a valid numeric ID
-      };
-    }) as Edge[];
-
-    console.log('Final graph state:', {
-      nodes: currentNodes.length,
-      edges: currentEdges.length,
-      edgeDetails: currentEdges.map(e => ({
-        id: e.id,
-        source: e.sourceId,
-        target: e.targetId,
-        label: e.label
+    const underdevelopedThemes = clusters
+      .map(cluster => ({
+        theme: cluster.metadata.semanticTheme,
+        nodeCount: cluster.nodes.length,
+        avgCoherence: cluster.metadata.coherenceScore
       }))
+      .filter(theme => theme.nodeCount < 3 || theme.avgCoherence < 0.4);
+
+    console.log('Knowledge gap analysis complete:', {
+      disconnectedCount: disconnectedConcepts.length,
+      weakConnectionsCount: weakConnections.length,
+      underdevelopedThemesCount: underdevelopedThemes.length
     });
 
     return {
-      nodes: currentNodes,
-      edges: currentEdges,
-      metrics: {
-        betweenness: Object.fromEntries(
-          Object.entries(betweenness).map(([k, v]) => [parseInt(k), v])
-        ),
-        eigenvector: Object.fromEntries(
-          Object.entries(eigenvector).map(([k, v]) => [parseInt(k), v])
-        ),
-        degree,
-        scaleFreeness: {
-          powerLawExponent: degreeDistribution.alpha,
-          fitQuality: degreeDistribution.r2,
-          hubNodes: hubNodes.map(node => ({
-            id: parseInt(node),
-            degree: this.graph.degree(node),
-            influence: betweenness[node]
-          })),
-          bridgingNodes: bridgingNodes.map(node => ({
-            id: parseInt(node),
-            communities: Array.from(this.graph.neighbors(node)).length,
-            betweenness: betweenness[node]
-          }))
-        }
-      },
-      clusters
+      disconnectedConcepts,
+      weakConnections,
+      underdevelopedThemes
     };
   }
 
-  private identifyHubs(): string[] {
-    // Identify nodes with significantly higher degree than average
-    const degrees = Array.from(this.graph.nodes()).map(node => ({
-      id: node,
-      degree: this.graph.degree(node)
-    }));
-
-    const avgDegree = degrees.reduce((sum, n) => sum + n.degree, 0) / degrees.length;
-    const stdDev = Math.sqrt(
-      degrees.reduce((sum, n) => sum + Math.pow(n.degree - avgDegree, 2), 0) / degrees.length
-    );
-
-    // Consider nodes with degree > avg + 2*stddev as hubs
-    return degrees
-      .filter(n => n.degree > avgDegree + 2 * stdDev)
-      .map(n => n.id);
-  }
-
-  private identifyBridgingNodes(): string[] {
-    const betweenness = centrality.betweenness(this.graph);
-    const avgBetweenness = Object.values(betweenness)
-      .reduce((sum, val) => sum + val, 0) / Object.keys(betweenness).length;
-
-    // Nodes with high betweenness are likely bridge nodes
-    return Object.entries(betweenness)
-      .filter(([_, value]) => value > 2 * avgBetweenness)
-      .map(([node, _]) => node);
-  }
-
-  private countDisconnectedNodes(): number {
-    let count = 0;
-    this.graph.forEachNode((nodeId: string) => {
-      if (this.graph.degree(nodeId) === 0) {
-        count++;
-      }
-    });
-    return count;
-  }
-
-  async reconnectDisconnectedNodes(): Promise<GraphData> {
-    console.log('Starting reconnection of disconnected nodes');
-    const disconnectedNodeIds = new Set<string>();
-
-    // Store initial state for verification
-    const initialState = {
-      edges: this.graph.size,
-      edgeList: Array.from(this.graph.edges())
-    };
-
-    // Identify disconnected nodes
-    this.graph.forEachNode((nodeId: string) => {
-      if (this.graph.degree(nodeId) === 0) {
-        disconnectedNodeIds.add(nodeId);
-        console.log('Found disconnected node:', {
-          id: nodeId,
-          label: this.graph.getNodeAttributes(nodeId).label
-        });
-      }
-    });
-
-    if (disconnectedNodeIds.size === 0) {
-      console.log('No disconnected nodes found');
-      return this.calculateMetrics();
-    }
-
-    console.log(`Found ${disconnectedNodeIds.size} disconnected nodes`);
-
-    // Group nodes by type for more meaningful connections
-    const nodesByType = new Map<string, string[]>();
-    disconnectedNodeIds.forEach(nodeId => {
-      const node = this.graph.getNodeAttributes(nodeId);
-      if (!nodesByType.has(node.type)) {
-        nodesByType.set(node.type, []);
-      }
-      nodesByType.get(node.type)!.push(nodeId);
-    });
-
-    let reconnectionAttempts = 0;
-    let reconnectedCount = 0;
-
-    // Connect nodes of similar types
-    for (const [type, nodes] of nodesByType.entries()) {
-      console.log(`Processing nodes of type: ${type}`);
-
-      for (const nodeId of nodes) {
-        try {
-          // Find a suitable connected node to link to
-          let targetNodeId: string | null = null;
-          this.graph.forEachNode((potentialTarget: string) => {
-            if (
-              !disconnectedNodeIds.has(potentialTarget) &&
-              this.graph.getNodeAttributes(potentialTarget).type === type &&
-              !targetNodeId &&
-              potentialTarget !== nodeId
-            ) {
-              targetNodeId = potentialTarget;
-            }
-          });
-
-          if (targetNodeId) {
-            reconnectionAttempts++;
-            const sourceNode = this.graph.getNodeAttributes(nodeId);
-            const targetNode = this.graph.getNodeAttributes(targetNodeId);
-
-            // Create edge in database first
-            const edge = await storage.createEdge({
-              sourceId: parseInt(nodeId),
-              targetId: parseInt(targetNodeId),
-              label: "related_to",
-              weight: 1
-            });
-
-            // Then add edge to graph if it doesn't exist
-            if (!this.graph.hasEdge(nodeId, targetNodeId)) {
-              this.graph.addEdge(nodeId, targetNodeId, { ...edge });
-              reconnectedCount++;
-
-              console.log('Connected nodes:', {
-                source: { id: nodeId, label: sourceNode.label },
-                target: { id: targetNodeId, label: targetNode.label }
-              });
-            }
-          }
-        } catch (error) {
-          console.error('Failed to connect node:', {
-            nodeId,
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
-      }
-    }
-
-    // Verify edge preservation
-    const finalState = {
-      edges: this.graph.size,
-      edgeList: Array.from(this.graph.edges())
-    };
-
-    console.log('Reconnection complete:', {
-      initialEdges: initialState.edges,
-      finalEdges: finalState.edges,
-      reconnectionAttempts,
-      reconnectedCount,
-      remainingDisconnected: this.countDisconnectedNodes(),
-      edgesPreserved: initialState.edgeList.every(edge => finalState.edgeList.includes(edge))
-    });
-
-    // Calculate final metrics
-    return this.calculateMetrics();
-  }
-
-  setOnUpdateCallback(onUpdate: (graphData: GraphDataWithClusters) => void): void { // Added setOnUpdateCallback
+  setOnUpdateCallback(onUpdate: (graphData: GraphDataWithClusters) => void): void {
     this.onUpdate = onUpdate;
   }
 
@@ -1039,6 +841,128 @@ export class GraphManager {
     }
 
     console.log('Graph repair complete');
+  }
+
+  private countDisconnectedNodes(): number {
+    let count = 0;
+    this.graph.forEachNode((nodeId: string) => {
+      if (this.graph.degree(nodeId) === 0) {
+        count++;
+      }
+    });
+    return count;
+  }
+
+  async reconnectDisconnectedNodes(): Promise<GraphData> {
+    console.log('Starting reconnection of disconnected nodes');
+    const disconnectedNodeIds = new Set<string>();
+
+    // Store initial state for verification
+    const initialState = {
+      edges: this.graph.size,
+      edgeList: Array.from(this.graph.edges())
+    };
+
+    // Identify disconnected nodes
+    this.graph.forEachNode((nodeId: string) => {
+      if (this.graph.degree(nodeId) === 0) {
+        disconnectedNodeIds.add(nodeId);
+        console.log('Found disconnected node:', {
+          id: nodeId,
+          label: this.graph.getNodeAttributes(nodeId).label
+        });
+      }
+    });
+
+    if (disconnectedNodeIds.size === 0) {
+      console.log('No disconnected nodes found');
+      return this.calculateMetrics();
+    }
+
+    console.log(`Found ${disconnectedNodeIds.size} disconnected nodes`);
+
+    // Group nodes by type for more meaningful connections
+    const nodesByType = new Map<string, string[]>();
+    disconnectedNodeIds.forEach(nodeId => {
+      const node = this.graph.getNodeAttributes(nodeId);
+      if (!nodesByType.has(node.type)) {
+        nodesByType.set(node.type, []);
+      }
+      nodesByType.get(node.type)!.push(nodeId);
+    });
+
+    let reconnectionAttempts = 0;
+    let reconnectedCount = 0;
+
+    // Connect nodes of similar types
+    for (const [type, nodes] of nodesByType.entries()) {
+      console.log(`Processing nodes of type: ${type}`);
+
+      for (const nodeId of nodes) {
+        try {
+          // Find a suitable connected node to link to
+          let targetNodeId: string | null = null;
+          this.graph.forEachNode((potentialTarget: string) => {
+            if (
+              !disconnectedNodeIds.has(potentialTarget) &&
+              this.graph.getNodeAttributes(potentialTarget).type === type &&
+              !targetNodeId &&
+              potentialTarget !== nodeId
+            ) {
+              targetNodeId = potentialTarget;
+            }
+          });
+
+          if (targetNodeId) {
+            reconnectionAttempts++;
+            const sourceNode = this.graph.getNodeAttributes(nodeId);
+            const targetNode = this.graph.getNodeAttributes(targetNodeId);
+
+            // Create edge in database first
+            const edge = await storage.createEdge({
+              sourceId: parseInt(nodeId),
+              targetId: parseInt(targetNodeId),
+              label: "related_to",
+              weight: 1
+            });
+
+            // Then add edge to graph if it doesn't exist
+            if (!this.graph.hasEdge(nodeId, targetNodeId)) {
+              this.graph.addEdge(nodeId, targetNodeId, { ...edge });
+              reconnectedCount++;
+
+              console.log('Connected nodes:', {
+                source: { id: nodeId, label: sourceNode.label },
+                target: { id: targetNodeId, label: targetNode.label }
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Failed to connect node:', {
+            nodeId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+    }
+
+    // Verify edge preservation
+    const finalState = {
+      edges: this.graph.size,
+      edgeList: Array.from(this.graph.edges())
+    };
+
+    console.log('Reconnection complete:', {
+      initialEdges: initialState.edges,
+      finalEdges: finalState.edges,
+      reconnectionAttempts,
+      reconnectedCount,
+      remainingDisconnected: this.countDisconnectedNodes(),
+      edgesPreserved: initialState.edgeList.every(edge => finalState.edgeList.includes(edge))
+    });
+
+    // Calculate final metrics
+    return this.calculateMetrics();
   }
 }
 

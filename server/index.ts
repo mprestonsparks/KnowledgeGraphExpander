@@ -1,10 +1,32 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { createProxyMiddleware } from 'http-proxy-middleware';
+import { spawn } from 'child_process';
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Start FastAPI server
+const pythonProcess = spawn('python', ['-m', 'uvicorn', 'server.app:app', '--host', '0.0.0.0', '--port', '8000']);
+
+pythonProcess.stdout.on('data', (data) => {
+  console.log(`FastAPI: ${data}`);
+});
+
+pythonProcess.stderr.on('data', (data) => {
+  console.error(`FastAPI Error: ${data}`);
+});
+
+// Proxy /api requests to FastAPI
+app.use('/api', createProxyMiddleware({
+  target: 'http://localhost:8000',
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api': '/api', // keep /api prefix
+  },
+}));
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -47,9 +69,6 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
@@ -65,5 +84,10 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+  });
+
+  // Cleanup on exit
+  process.on('exit', () => {
+    pythonProcess.kill();
   });
 })();

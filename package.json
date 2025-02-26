@@ -63,7 +63,7 @@
     "framer-motion": "^11.13.1",
     "graphology": "^0.26.0",
     "graphology-components": "^1.5.4",
-    "graphology-metrics": "^2.3.1",
+    "http-proxy-middleware": "^3.0.3",
     "input-otp": "^1.2.4",
     "jsdom": "^26.0.0",
     "lucide-react": "^0.453.0",
