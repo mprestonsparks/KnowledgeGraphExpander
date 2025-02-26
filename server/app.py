@@ -1,8 +1,8 @@
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 import networkx as nx
-import numpy as np
 from scipy import stats
 import logging
 
@@ -77,8 +77,8 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
             eigenvector={},
             degree={},
             scaleFreeness=ScaleFreeness(
-                powerLawExponent=0,
-                fitQuality=0,
+                powerLawExponent=0.0,
+                fitQuality=0.0,
                 hubNodes=[],
                 bridgingNodes=[]
             )
@@ -94,22 +94,35 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
     logger.info("Calculating scale-freeness metrics")
     degrees = [d for n, d in G.degree()]
 
-    power_law_exp = 0
-    fit_quality = 0
+    power_law_exp = 0.0
+    fit_quality = 0.0
 
-    if len(degrees) > 1:
-        degrees = np.array(degrees) + 1  # Avoid log(0)
-        log_degrees = np.log(degrees)
-        log_counts = np.log(np.bincount(degrees)[1:])
-        mask = (log_degrees > 0) & (log_counts > 0)
-        if any(mask):
-            slope, intercept, r_value, p_value, std_err = stats.linregress(
-                log_degrees[mask],
-                log_counts[mask]
-            )
-            power_law_exp = -slope
-            fit_quality = r_value ** 2
-            logger.info(f"Power law fit: exponent={power_law_exp:.2f}, quality={fit_quality:.2f}")
+    if len(degrees) > 2:  # Need at least 3 nodes for meaningful power law
+        try:
+            # Add 1 to handle zero degrees and take log
+            degrees = np.array(degrees) + 1
+            unique_degrees, degree_counts = np.unique(degrees, return_counts=True)
+
+            # Only proceed if we have enough unique degrees
+            if len(unique_degrees) > 1:
+                log_degrees = np.log(unique_degrees)
+                log_counts = np.log(degree_counts)
+
+                # Linear regression on log-log plot
+                slope, intercept, r_value, p_value, std_err = stats.linregress(
+                    log_degrees,
+                    log_counts
+                )
+
+                # Convert to finite values or defaults
+                power_law_exp = float(-slope) if not np.isnan(slope) else 0.0
+                fit_quality = float(r_value ** 2) if not np.isnan(r_value) else 0.0
+
+                logger.info(f"Power law fit: exponent={power_law_exp:.2f}, quality={fit_quality:.2f}")
+        except Exception as e:
+            logger.warning(f"Failed to calculate power law fit: {str(e)}")
+            power_law_exp = 0.0
+            fit_quality = 0.0
 
     # Identify hub nodes
     mean_degree = np.mean(list(degree.values()))
@@ -117,7 +130,7 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
         HubNode(
             id=node,
             degree=degree[node],
-            influence=eigenvector[node]
+            influence=float(eigenvector[node])  # Ensure float is finite
         )
         for node in sorted(degree, key=degree.get, reverse=True)[:5]
         if degree[node] > mean_degree
@@ -130,20 +143,21 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
         BridgingNode(
             id=node,
             communities=len(list(G.neighbors(node))),
-            betweenness=betweenness[node]
+            betweenness=float(betweenness[node])  # Ensure float is finite
         )
         for node in sorted(betweenness, key=betweenness.get, reverse=True)[:5]
         if betweenness[node] > mean_betweenness
     ]
     logger.info(f"Identified {len(bridging_nodes)} bridging nodes")
 
+    # Ensure all values are finite for JSON serialization
     metrics = GraphMetrics(
-        betweenness=betweenness,
-        eigenvector=eigenvector,
-        degree=degree,
+        betweenness={k: float(v) for k, v in betweenness.items()},
+        eigenvector={k: float(v) for k, v in eigenvector.items()},
+        degree={k: int(v) for k, v in degree.items()},
         scaleFreeness=ScaleFreeness(
-            powerLawExponent=float(power_law_exp),
-            fitQuality=float(fit_quality),
+            powerLawExponent=power_law_exp,
+            fitQuality=fit_quality,
             hubNodes=hub_nodes,
             bridgingNodes=bridging_nodes
         )
