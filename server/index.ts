@@ -8,50 +8,88 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+console.log('Starting FastAPI server...');
 // Start FastAPI server
 const pythonProcess = spawn('python', ['-m', 'uvicorn', 'server.app:app', '--host', '0.0.0.0', '--port', '8000']);
 
 pythonProcess.stdout.on('data', (data) => {
-  console.log(`FastAPI: ${data}`);
+  const output = data.toString();
+  console.log(`FastAPI: ${output}`);
 });
 
 pythonProcess.stderr.on('data', (data) => {
   console.error(`FastAPI Error: ${data}`);
 });
 
-// Proxy /api requests to FastAPI
-app.use('/api', createProxyMiddleware({
+pythonProcess.on('error', (error) => {
+  console.error('Failed to start FastAPI server:', error);
+});
+
+// Wait for FastAPI server to be ready
+console.log('Waiting for FastAPI server to start...');
+const waitForFastAPI = new Promise<void>((resolve) => {
+  const timeout = setTimeout(() => {
+    console.warn('FastAPI server startup timeout - proceeding with Express startup');
+    resolve(); // Resolve anyway to allow Express to start
+  }, 15000); // 15 second timeout
+
+  pythonProcess.stdout.on('data', (data) => {
+    const output = data.toString();
+    if (output.includes('Application startup complete')) {
+      console.log('FastAPI server startup detected');
+      clearTimeout(timeout);
+      resolve();
+    }
+  });
+});
+
+// Proxy middleware configuration
+const proxyConfig = {
   target: 'http://localhost:8000',
   changeOrigin: true,
   pathRewrite: {
-    '^/api': '/api', // keep /api prefix
+    '^/api': '', // Remove /api prefix when forwarding to FastAPI
   },
+  onProxyReq: (proxyReq: any, req: Request) => {
+    console.log(`Proxying ${req.method} ${req.path} to FastAPI`);
+  },
+  onProxyRes: (proxyRes: any, req: Request) => {
+    console.log(`Received FastAPI response for ${req.method} ${req.path}: ${proxyRes.statusCode}`);
+  },
+  onError: (err: Error, req: Request, res: Response) => {
+    console.error('Proxy error:', err);
+    res.status(503).json({ error: 'Graph analysis service temporarily unavailable' });
+  }
+};
+
+// Use proxy for all /api routes
+app.use('/api', createProxyMiddleware(proxyConfig));
+
+// Handle /graph route specifically
+app.use('/graph', createProxyMiddleware({
+  ...proxyConfig,
+  pathRewrite: {
+    '^/graph': '/graph', // Direct mapping for /graph endpoints
+  }
 }));
 
+// Logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
+  // Capture JSON responses for logging
+  const originalJson = res.json;
+  res.json = function(body) {
+    const jsonResponse = body;
+    res.json = originalJson;
+    return originalJson.call(this, body);
   };
 
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
+    if (path.startsWith("/api") || path.startsWith("/graph")) {
+      log(`${req.method} ${path} ${res.statusCode} in ${duration}ms`);
     }
   });
 
@@ -59,35 +97,59 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
+  try {
+    console.log('Starting application setup...');
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    // Wait for FastAPI but don't block on it
+    await Promise.race([
+      waitForFastAPI,
+      new Promise(resolve => setTimeout(resolve, 15000))
+    ]);
 
-    res.status(status).json({ message });
-    throw err;
-  });
+    console.log('Configuring Express server...');
+    const server = await registerRoutes(app);
 
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+    // Global error handler
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
+      console.error('Express error:', err);
+      res.status(status).json({ message });
+    });
+
+    if (app.get("env") === "development") {
+      await setupVite(app, server);
+    } else {
+      serveStatic(app);
+    }
+
+    // Start Express server
+    const port = 5000;
+    console.log(`Starting Express server on port ${port}...`);
+
+    server.listen({
+      port,
+      host: "0.0.0.0",
+      reusePort: true,
+    }, () => {
+      console.log(`Express server running on port ${port}`);
+      log(`Express server running on port ${port}`);
+    });
+
+    // Cleanup handlers
+    process.on('exit', () => {
+      console.log('Shutting down servers...');
+      pythonProcess.kill();
+    });
+
+    process.on('SIGINT', () => {
+      console.log('Received SIGINT, shutting down servers...');
+      pythonProcess.kill();
+      process.exit();
+    });
+
+  } catch (error) {
+    console.error('Failed to start servers:', error);
+    process.exit(1);
   }
-
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client
-  const port = 5000;
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
-  });
-
-  // Cleanup on exit
-  process.on('exit', () => {
-    pythonProcess.kill();
-  });
 })();

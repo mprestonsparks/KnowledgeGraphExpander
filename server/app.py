@@ -52,6 +52,46 @@ class GraphMetrics(BaseModel):
     degree: Dict[int, float]
     scaleFreeness: ScaleFreeness
 
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint to verify the service is running.
+    """
+    return {"status": "healthy"}
+
+@app.get("/graph")
+async def get_graph():
+    """
+    Get basic graph information and health status.
+    This endpoint is used to verify the graph analysis service is functioning.
+    """
+    return {
+        "status": "healthy",
+        "version": "1.0",
+        "supported_metrics": [
+            "betweenness",
+            "eigenvector",
+            "degree",
+            "scale_freeness"
+        ]
+    }
+
+@app.post("/graph/analyze")
+async def analyze_graph(graph_data: GraphData) -> GraphMetrics:
+    """
+    Analyze a graph and return its metrics.
+    Accepts a graph structure and returns various network analysis metrics.
+    """
+    try:
+        logger.info(f"Received graph analysis request: {len(graph_data.nodes)} nodes, {len(graph_data.edges)} edges")
+        G = create_networkx_graph(graph_data)
+        metrics = calculate_metrics(G)
+        logger.info("Graph analysis completed successfully")
+        return metrics
+    except Exception as e:
+        logger.error(f"Error during graph analysis: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 def create_networkx_graph(graph_data: GraphData) -> nx.Graph:
     logger.info(f"Creating NetworkX graph from input data: {len(graph_data.nodes)} nodes, {len(graph_data.edges)} edges")
     G = nx.Graph()
@@ -164,20 +204,3 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
     )
     logger.info("Metrics calculation complete")
     return metrics
-
-@app.post("/api/graph/analyze")
-async def analyze_graph(graph_data: GraphData) -> GraphMetrics:
-    try:
-        logger.info(f"Received graph analysis request: {len(graph_data.nodes)} nodes, {len(graph_data.edges)} edges")
-        G = create_networkx_graph(graph_data)
-        metrics = calculate_metrics(G)
-        logger.info("Graph analysis completed successfully")
-        return metrics
-    except Exception as e:
-        logger.error(f"Error during graph analysis: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Health check endpoint
-@app.get("/api/health")
-async def health_check():
-    return {"status": "healthy"}
