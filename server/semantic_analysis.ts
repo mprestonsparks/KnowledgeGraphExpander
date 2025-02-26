@@ -1,3 +1,21 @@
+function isValidBase64(str: string): boolean {
+  if (!str) return false;
+
+  // Check for valid base64 characters only
+  const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+  if (!base64Regex.test(str)) return false;
+
+  // Check length is multiple of 4
+  if (str.length % 4 !== 0) return false;
+
+  try {
+    const buffer = Buffer.from(str, 'base64');
+    return Buffer.from(buffer.toString('base64')).length === buffer.length;
+  } catch {
+    return false;
+  }
+}
+
 import Anthropic from '@anthropic-ai/sdk';
 import type { Node, Edge, InsertNode, InsertEdge, RelationshipSuggestion } from "@shared/schema";
 
@@ -27,8 +45,17 @@ interface MultimodalContent {
 }
 
 export class SemanticAnalysisService {
-  async analyzeContent(content: MultimodalContent, existingNodes: Node[]): Promise<SemanticAnalysisResult> {
+  async analyzeContent(content: MultimodalContent, existingNodes: Node[] = []): Promise<SemanticAnalysisResult> {
     try {
+      // Validate image data if present
+      if (content.images?.length) {
+        for (const image of content.images) {
+          if (!isValidBase64(image.data)) {
+            throw new Error('Invalid image data format');
+          }
+        }
+      }
+
       const systemPrompt = `You are a semantic analysis expert. Analyze the following content and extract knowledge graph elements.
 
 Important: Your response must be valid JSON in this exact format:
@@ -72,9 +99,11 @@ Rules:
       if (content.images?.length) {
         content.images.forEach(image => {
           messages[0].content.push({
-            type: "image_url",
-            image_url: {
-              url: `data:${image.type};base64,${image.data}`
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: image.type,
+              data: image.data
             }
           });
         });
@@ -110,7 +139,7 @@ Rules:
       };
     } catch (error) {
       console.error('Semantic analysis failed:', error);
-      throw new Error('Failed to perform semantic analysis');
+      throw error; // Re-throw the error to be handled by the caller
     }
   }
 

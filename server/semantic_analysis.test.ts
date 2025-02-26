@@ -3,6 +3,9 @@ import { SemanticAnalysisService } from './semantic_analysis';
 import type { Node } from '@shared/schema';
 import Anthropic from '@anthropic-ai/sdk';
 
+// Sample base64 image (1x1 transparent PNG)
+const sampleImageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==';
+
 // Setup mocks before any test data or usage
 vi.mock('@anthropic-ai/sdk', () => {
   return {
@@ -77,8 +80,8 @@ describe('SemanticAnalysisService', () => {
 
     it('should analyze multimodal content with images', async () => {
       const mockImage = {
-        data: 'base64_image_data',
-        type: 'image/jpeg'
+        data: sampleImageBase64,
+        type: 'image/png'
       };
 
       mockCreateMessage.mockImplementationOnce(async () => ({
@@ -91,7 +94,7 @@ describe('SemanticAnalysisService', () => {
                 type: "image_concept",
                 metadata: {
                   description: "Image analysis result",
-                  imageUrl: "data:image/jpeg;base64,base64_image_data",
+                  imageUrl: `data:image/png;base64,${sampleImageBase64}`,
                   imageDescription: "Description of image content"
                 }
               }
@@ -116,7 +119,7 @@ describe('SemanticAnalysisService', () => {
           messages: expect.arrayContaining([
             expect.objectContaining({
               content: expect.arrayContaining([
-                expect.objectContaining({ type: 'image_url' })
+                expect.objectContaining({ type: 'image' })
               ])
             })
           ])
@@ -127,7 +130,7 @@ describe('SemanticAnalysisService', () => {
     it('should handle invalid image data gracefully', async () => {
       const mockInvalidImage = {
         data: 'invalid_base64',
-        type: 'unknown'
+        type: 'image/png'
       };
 
       // Suppress error logging for test
@@ -136,7 +139,7 @@ describe('SemanticAnalysisService', () => {
       await expect(service.analyzeContent({
         text: "Test with invalid image",
         images: [mockInvalidImage]
-      }, mockNodes)).rejects.toThrow();
+      }, mockNodes)).rejects.toThrow('Invalid image data format');
     });
   });
 
