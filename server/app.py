@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -5,12 +6,22 @@ from typing import Dict, List, Optional
 import networkx as nx
 from scipy import stats
 import logging
-
+from fastapi.middleware.cors import CORSMiddleware
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+app = FastAPI(title="Knowledge Graph API")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # Pydantic models for request/response validation
 class Node(BaseModel):
@@ -52,6 +63,22 @@ class GraphMetrics(BaseModel):
     degree: Dict[int, float]
     scaleFreeness: ScaleFreeness
 
+@app.get("/")
+async def root():
+    """
+    Root endpoint that provides API information.
+    """
+    return {
+        "message": "Knowledge Graph API Server",
+        "version": "1.0",
+        "endpoints": {
+            "/": "This information",
+            "/health": "Health check",
+            "/graph": "Graph analysis service information",
+            "/graph/analyze": "Analyze graph metrics"
+        }
+    }
+
 @app.get("/health")
 async def health_check():
     """
@@ -62,8 +89,7 @@ async def health_check():
 @app.get("/graph")
 async def get_graph():
     """
-    Get basic graph information and health status.
-    This endpoint is used to verify the graph analysis service is functioning.
+    Get graph analysis service information and supported metrics.
     """
     return {
         "status": "healthy",
@@ -80,7 +106,6 @@ async def get_graph():
 async def analyze_graph(graph_data: GraphData) -> GraphMetrics:
     """
     Analyze a graph and return its metrics.
-    Accepts a graph structure and returns various network analysis metrics.
     """
     try:
         logger.info(f"Received graph analysis request: {len(graph_data.nodes)} nodes, {len(graph_data.edges)} edges")
@@ -204,3 +229,9 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
     )
     logger.info("Metrics calculation complete")
     return metrics
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 3000))  # Default to Replit's standard port
+    logger.info(f"Starting FastAPI server on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
