@@ -1,9 +1,7 @@
 modules = ["web", "python-3.11", "python3", "postgresql-16", "nodejs-20"]
 
-# This is the command run when you press "Run"
-run = "python3 main.py"
+run = "cd frontend && npm run build && cd .. && python3 main.py"
 
-# Hidden files/folders in file explorer
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
@@ -11,17 +9,11 @@ channel = "stable-24_05"
 
 [deployment]
 deploymentTarget = "cloudrun"
-# If you’re using Poetry:
-build = ["poetry", "install"]
 run = ["python3", "main.py"]
 
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 8000
-externalPort = 8000
 
 [workflows]
 runButton = "Project"
@@ -31,21 +23,10 @@ name = "Project"
 mode = "parallel"
 author = "agent"
 
-# Task 1: Start application
 [[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Start application"
-author = "agent"
+task = "shell.exec"
+args = "cd frontend && npm install && npm run build && cd .. && python3 main.py"
+waitForPort = 5000
 
 [workflows.workflow.metadata]
 agentRequireRestartOnSave = false
-
-# Task 2: Install any needed dependencies
-[[workflows.workflow.tasks]]
-task = "packager.installForAll"
-
-# Task 3: Actually run your FastAPI server
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python3 main.py"
-waitForPort = 8000
