@@ -6,8 +6,18 @@ import { z } from "zod";
 export const nodes = pgTable("nodes", {
   id: serial("id").primaryKey(),
   label: text("label").notNull(),
-  type: text("type").notNull(),
-  metadata: jsonb("metadata").$type<Record<string, any>>(),
+  type: text("type").notNull(), // concept, entity, process, or attribute
+  metadata: jsonb("metadata").$type<{
+    description?: string;
+    imageUrl?: string;
+    imageDescription?: string;
+    documentContext?: string;
+    semanticContext?: {
+      theme?: string;
+      confidence?: number;
+      reasoning?: string;
+    };
+  }>(),
 });
 
 // Edge represents a connection between nodes
@@ -17,6 +27,11 @@ export const edges = pgTable("edges", {
   targetId: integer("target_id").notNull(),
   label: text("label").notNull(),
   weight: integer("weight").notNull().default(1),
+  metadata: jsonb("metadata").$type<{
+    confidence?: number;
+    reasoning?: string;
+    validatedAt?: string;
+  }>(),
 });
 
 export const insertNodeSchema = createInsertSchema(nodes).pick({
@@ -30,6 +45,7 @@ export const insertEdgeSchema = createInsertSchema(edges).pick({
   targetId: true,
   label: true,
   weight: true,
+  metadata: true,
 });
 
 export type Node = typeof nodes.$inferSelect;
@@ -37,62 +53,30 @@ export type Edge = typeof edges.$inferSelect;
 export type InsertNode = z.infer<typeof insertNodeSchema>;
 export type InsertEdge = z.infer<typeof insertEdgeSchema>;
 
-// New types for semantic clustering
-export interface ClusterMetadata {
-  centroidNode: string;
-  semanticTheme: string;
-  coherenceScore: number;
-  multimodalContext?: {
-    imageUrl?: string;
-    imageDescription?: string;
-    documentContext?: string;
+// Graph analysis types
+export interface GraphMetrics {
+  betweenness: Record<number, number>;
+  eigenvector: Record<number, number>;
+  degree: Record<number, number>;
+  scaleFreeness: {
+    powerLawExponent: number;
+    fitQuality: number;
+    hubNodes: Array<{
+      id: number;
+      degree: number;
+      influence: number;
+    }>;
+    bridgingNodes: Array<{
+      id: number;
+      communities: number;
+      betweenness: number;
+    }>;
   };
 }
 
-export interface ClusterResult {
-  clusterId: number;
-  nodes: string[];
-  metadata: ClusterMetadata;
-}
-
-// Scale-free network analysis types
-export interface HubNode {
-  id: number;
-  degree: number;
-  influence: number;
-}
-
-export interface BridgingNode {
-  id: number;
-  communities: number;
-  betweenness: number;
-}
-
-export interface ScaleFreeness {
-  powerLawExponent: number;
-  fitQuality: number;
-  hubNodes: HubNode[];
-  bridgingNodes: BridgingNode[];
-}
-
-// Relationship suggestion types
-export interface RelationshipSuggestion {
-  sourceId: number;
-  targetId: number;
-  label: string;
-  confidence: number;
-  explanation: string;
-}
-
-export type GraphData = {
+// Complete graph data structure
+export interface GraphData {
   nodes: Node[];
   edges: Edge[];
-  metrics: {
-    betweenness: Record<number, number>;
-    eigenvector: Record<number, number>;
-    degree: Record<number, number>;
-    scaleFreeness: ScaleFreeness;
-  };
-  clusters?: ClusterResult[];
-  suggestions?: RelationshipSuggestion[];
-};
+  metrics: GraphMetrics;
+}
