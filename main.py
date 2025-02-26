@@ -28,7 +28,7 @@ app.add_middleware(
 )
 
 # Mount the React frontend static files
-app.mount("/", StaticFiles(directory="frontend/build", html=True), name="react_frontend")
+app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="react_frontend")
 
 # WebSocket connections store
 class ConnectionManager:
