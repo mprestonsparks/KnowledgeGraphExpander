@@ -176,13 +176,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const updatedGraph = await graphManager.expandWithSemantics(result.data.content);
-      console.log('Graph expanded with semantic analysis');
-      broadcastUpdate(updatedGraph);
-      res.json(updatedGraph);
+      // First perform semantic analysis
+      const semanticResult = await graphManager.expandWithSemantics(result.data.content);
+      console.log('Initial semantic analysis complete');
+      
+      // Then perform recursive expansion
+      const expandedGraph = await graphManager.expand(result.data.content);
+      console.log('Recursive expansion complete');
+      
+      // Broadcast final state after both operations
+      broadcastUpdate(expandedGraph);
+      res.json(expandedGraph);
     } catch (error) {
-      console.error('Failed to analyze content:', error);
-      res.status(500).json({ error: "Failed to analyze content" });
+      console.error('Failed to analyze and expand content:', error);
+      res.status(500).json({ error: "Failed to process content" });
     }
   });
 
