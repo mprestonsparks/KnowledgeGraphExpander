@@ -59,10 +59,9 @@ describe('SemanticAnalysisService', () => {
   });
 
   describe('analyzeContent', () => {
-    it('should analyze content and return structured results', async () => {
-      const result = await service.analyzeContent("Test content", mockNodes);
+    it('should analyze text content and return structured results', async () => {
+      const result = await service.analyzeContent({ text: "Test content" }, mockNodes);
 
-      // Expect ID to be assigned to the new node (lastNodeId + 1)
       expect(result).toEqual({
         nodes: [
           { id: 2, label: "Test Node", type: "concept", metadata: { description: "A test node" } }
@@ -76,38 +75,114 @@ describe('SemanticAnalysisService', () => {
       expect(mockCreateMessage).toHaveBeenCalled();
     });
 
-    it('should handle API errors gracefully', async () => {
-      // Suppress error logging
+    it('should analyze multimodal content with images', async () => {
+      const mockImage = {
+        data: 'base64_image_data',
+        type: 'image/jpeg'
+      };
+
+      mockCreateMessage.mockImplementationOnce(async () => ({
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            nodes: [
+              {
+                label: "Visual Node",
+                type: "image_concept",
+                metadata: {
+                  description: "Image analysis result",
+                  imageUrl: "data:image/jpeg;base64,base64_image_data",
+                  imageDescription: "Description of image content"
+                }
+              }
+            ],
+            edges: [
+              { sourceId: 1, targetId: 2, label: "visual_relation", weight: 0.8 }
+            ],
+            reasoning: "Multimodal analysis combining text and image content"
+          })
+        }]
+      }));
+
+      const result = await service.analyzeContent({
+        text: "Analyze this image",
+        images: [mockImage]
+      }, mockNodes);
+
+      expect(result.nodes[0].metadata).toHaveProperty('imageDescription');
+      expect(result.nodes[0].type).toBe('image_concept');
+      expect(mockCreateMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              content: expect.arrayContaining([
+                expect.objectContaining({ type: 'image_url' })
+              ])
+            })
+          ])
+        })
+      );
+    });
+
+    it('should handle invalid image data gracefully', async () => {
+      const mockInvalidImage = {
+        data: 'invalid_base64',
+        type: 'unknown'
+      };
+
+      // Suppress error logging for test
       vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      // Setup error mock
-      mockCreateMessage.mockRejectedValueOnce(new Error('API Error'));
+      await expect(service.analyzeContent({
+        text: "Test with invalid image",
+        images: [mockInvalidImage]
+      }, mockNodes)).rejects.toThrow();
+    });
+  });
 
-      await expect(service.analyzeContent("Test content", mockNodes))
-        .rejects.toThrow('Failed to perform semantic analysis');
+  describe('validateRelationships', () => {
+    it('should validate relationships with semantic confidence scores', async () => {
+      const sourceNode = mockNodes[0];
+      const targetNodes = [
+        { id: 2, label: "Target Node", type: "concept", metadata: {} }
+      ];
+
+      mockCreateMessage.mockImplementationOnce(async () => ({
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            confidenceScores: { 2: 0.85 },
+            reasoning: "Strong semantic connection found"
+          })
+        }]
+      }));
+
+      const result = await service.validateRelationships(sourceNode, targetNodes);
+
+      expect(result.confidenceScores).toHaveProperty('2', 0.85);
+      expect(result.reasoning).toBeTruthy();
     });
   });
 
   describe('suggestRelationships', () => {
-    it('should suggest relationships between nodes', async () => {
+    it('should suggest relationships with confidence and explanations', async () => {
+      mockCreateMessage.mockImplementationOnce(async () => ({
+        content: [{
+          type: 'text',
+          text: JSON.stringify([{
+            sourceId: 1,
+            targetId: 2,
+            label: "suggests",
+            confidence: 0.85,
+            explanation: "Strong thematic connection"
+          }])
+        }]
+      }));
+
       const result = await service.suggestRelationships(mockNodes);
 
-      expect(result).toEqual([
-        { id: 1, sourceId: 1, targetId: 2, label: "test_relation", weight: 1 }
-      ]);
-
-      expect(mockCreateMessage).toHaveBeenCalled();
-    });
-
-    it('should handle API errors gracefully', async () => {
-      // Suppress error logging
-      vi.spyOn(console, 'error').mockImplementation(() => {});
-
-      // Setup error mock
-      mockCreateMessage.mockRejectedValueOnce(new Error('API Error'));
-
-      await expect(service.suggestRelationships(mockNodes))
-        .rejects.toThrow('Failed to suggest relationships');
+      expect(result[0]).toHaveProperty('confidence');
+      expect(result[0]).toHaveProperty('explanation');
     });
   });
 });

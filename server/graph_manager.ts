@@ -16,6 +16,8 @@ export class GraphManager {
   private isExpanding: boolean = false;
   private expandPromise: Promise<void> | null = null;
   private currentIteration: number = 0;
+  private maxProcessingTime: number = 8000; // 8 seconds max processing time
+  private debugLogging: boolean = process.env.NODE_ENV !== 'production';
   private semanticClustering: SemanticClusteringService;
   private onUpdate: ((graphData: GraphDataWithClusters) => void) | null = null; // Added onUpdate callback
 
@@ -114,36 +116,50 @@ export class GraphManager {
       console.log('Starting expansion with prompt:', prompt);
       this.currentIteration = 0;
 
-      // Initial expansion
-      this.expandPromise = this.performIterativeExpansion(prompt, maxIterations);
-      await this.expandPromise;
+      const startTime = performance.now();
 
-      // Knowledge gap analysis
-      const gaps = await this.detectKnowledgeGaps();
-      console.log('Detected knowledge gaps:', gaps);
+      // Initial expansion with timeout
+      this.expandPromise = Promise.race([
+        this.performIterativeExpansion(prompt, maxIterations),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Expansion timeout')), this.maxProcessingTime)
+        )
+      ]);
 
-      // Additional expansion focused on gaps
-      if (gaps.disconnectedConcepts.length > 0 || gaps.underdevelopedThemes.length > 0) {
-        console.log('Starting gap-focused expansion');
-        const gapPrompt = `
-          Analyze and expand upon these areas:
-          Disconnected concepts: ${gaps.disconnectedConcepts.join(', ')}
-          Underdeveloped themes: ${gaps.underdevelopedThemes.map(t => t.theme).join(', ')}
-          ${prompt}
-        `;
-
-        this.expandPromise = this.performIterativeExpansion(gapPrompt, Math.max(3, Math.floor(maxIterations / 3)));
+      try {
         await this.expandPromise;
+      } catch (error) {
+        if (error.message === 'Expansion timeout') {
+          console.log('Expansion timed out, returning current state');
+          return this.calculateMetrics();
+        }
+        throw error;
       }
 
-      // Validate and repair graph after expansion
-      console.log('Validating graph consistency');
-      const { isValid, anomalies } = await this.validateGraphConsistency();
+      // Knowledge gap analysis if time permits
+      const remainingTime = this.maxProcessingTime - (performance.now() - startTime);
+      if (remainingTime > 2000) { // Only perform gap analysis if we have >2s remaining
+        const gaps = await this.detectKnowledgeGaps();
+        if (this.debugLogging) {
+          console.log('Detected knowledge gaps:', gaps);
+        }
 
-      if (!isValid) {
-        console.log('Detected anomalies:', anomalies);
-        await this.repairGraphAnomalies(anomalies);
-        console.log('Graph repair complete');
+        // Additional expansion focused on gaps
+        if (gaps.disconnectedConcepts.length > 0 || gaps.underdevelopedThemes.length > 0) {
+          if (this.debugLogging) {
+            console.log('Starting gap-focused expansion');
+          }
+          const gapPrompt = `
+            Analyze and expand upon these areas:
+            Disconnected concepts: ${gaps.disconnectedConcepts.join(', ')}
+            Underdeveloped themes: ${gaps.underdevelopedThemes.map(t => t.theme).join(', ')}
+            ${prompt}
+          `;
+
+          const gapIterations = Math.max(2, Math.floor(maxIterations / 4));
+          this.expandPromise = this.performIterativeExpansion(gapPrompt, gapIterations);
+          await this.expandPromise;
+        }
       }
 
       return this.calculateMetrics();
@@ -261,24 +277,28 @@ export class GraphManager {
   private async performIterativeExpansion(initialPrompt: string, maxIterations: number): Promise<void> {
     let currentPrompt = initialPrompt;
     this.currentIteration = 0;
+    const startTime = performance.now();
 
     while (this.currentIteration < maxIterations) {
-      console.log(`Starting iteration ${this.currentIteration + 1}/${maxIterations}`);
-      console.log('Current prompt:', currentPrompt);
+      if (performance.now() - startTime > this.maxProcessingTime) {
+        if (this.debugLogging) {
+          console.log('Reached processing time limit, stopping expansion');
+        }
+        break;
+      }
+
+      if (this.debugLogging) {
+        console.log(`Starting iteration ${this.currentIteration + 1}/${maxIterations}`);
+        console.log('Current prompt:', currentPrompt);
+      }
 
       try {
         const expansion = await expandGraph(currentPrompt, this.graph);
 
-        // Log the full expansion result
-        console.log('Raw expansion result:', {
-          expansion,
-          nodesProposed: expansion.nodes?.length || 0,
-          edgesProposed: expansion.edges?.length || 0,
-          nextQuestion: expansion.nextQuestion
-        });
-
         if (!expansion.nodes?.length && !expansion.edges?.length) {
-          console.log('No expansion data received, ending iterations');
+          if (this.debugLogging) {
+            console.log('No expansion data received, ending iterations');
+          }
           break;
         }
 
@@ -289,18 +309,20 @@ export class GraphManager {
         );
 
         if (!isValid) {
-          console.log('Skipping invalid expansion - no valid connected components found');
+          if (this.debugLogging) {
+            console.log('Skipping invalid expansion - no valid connected components found');
+          }
           break;
         }
 
         // Track initial state for logging
-        const initialState = {
+        const initialState = this.debugLogging ? {
           nodes: this.graph.order,
           edges: this.graph.size,
           disconnectedBefore: this.countDisconnectedNodes()
-        };
+        } : null;
 
-        // Process validated nodes and edges, broadcasting updates incrementally
+        // Process validated nodes and edges
         let hasChanges = false;
 
         for (const nodeData of validNodes) {
@@ -308,22 +330,20 @@ export class GraphManager {
             const node = await storage.createNode(nodeData);
             if (!this.graph.hasNode(node.id.toString())) {
               this.graph.addNode(node.id.toString(), { ...node });
-              console.log('Added node:', {
-                id: node.id,
-                label: node.label,
-                type: node.type
-              });
               hasChanges = true;
+              if (this.debugLogging) {
+                console.log('Added node:', {
+                  id: node.id,
+                  label: node.label,
+                  type: node.type
+                });
+              }
             }
           } catch (error) {
-            console.error('Failed to create node:', {
-              error,
-              nodeData
-            });
+            console.error('Failed to create node:', error);
           }
         }
 
-        // Process validated edges
         for (const edgeData of validEdges) {
           try {
             const edge = await storage.createEdge(edgeData);
@@ -332,47 +352,46 @@ export class GraphManager {
 
             if (!this.graph.hasEdge(sourceId, targetId)) {
               this.graph.addEdge(sourceId, targetId, { ...edge });
-              console.log('Added edge:', {
-                id: edge.id,
-                source: sourceId,
-                target: targetId,
-                label: edge.label
-              });
               hasChanges = true;
+              if (this.debugLogging) {
+                console.log('Added edge:', {
+                  source: sourceId,
+                  target: targetId,
+                  label: edge.label
+                });
+              }
             }
           } catch (error) {
-            console.error('Failed to create edge:', {
-              error,
-              edgeData
-            });
+            console.error('Failed to create edge:', error);
           }
         }
 
         // If we made changes, calculate metrics and emit update
         if (hasChanges) {
           const graphData = this.calculateMetrics();
-          // Signal for broadcasting intermediate update
           if (this.onUpdate) {
             this.onUpdate(graphData);
           }
         }
 
-        // Log final state and changes
-        const finalState = {
-          nodes: this.graph.order,
-          edges: this.graph.size,
-          disconnectedAfter: this.countDisconnectedNodes()
-        };
+        // Log final state and changes if debug logging is enabled
+        if (this.debugLogging && initialState) {
+          const finalState = {
+            nodes: this.graph.order,
+            edges: this.graph.size,
+            disconnectedAfter: this.countDisconnectedNodes()
+          };
 
-        console.log('Iteration complete:', {
-          iteration: this.currentIteration + 1,
-          maxIterations,
-          before: initialState,
-          after: finalState,
-          nodesAdded: finalState.nodes - initialState.nodes,
-          edgesAdded: finalState.edges - initialState.edges,
-          disconnectedNodeChange: finalState.disconnectedAfter - initialState.disconnectedBefore
-        });
+          console.log('Iteration complete:', {
+            iteration: this.currentIteration + 1,
+            maxIterations,
+            before: initialState,
+            after: finalState,
+            nodesAdded: finalState.nodes - initialState.nodes,
+            edgesAdded: finalState.edges - initialState.edges,
+            disconnectedNodeChange: finalState.disconnectedAfter - initialState.disconnectedBefore
+          });
+        }
 
         if (expansion.nextQuestion) {
           currentPrompt = expansion.nextQuestion;
@@ -381,7 +400,7 @@ export class GraphManager {
         }
 
         this.currentIteration++;
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 100)); // Small delay between iterations
       } catch (error) {
         console.error('Error during iteration:', error);
         break;
@@ -660,7 +679,10 @@ export class GraphManager {
     this.onUpdate = onUpdate;
   }
 
-  async expandWithSemantics(content: string): Promise<GraphData> {
+  async expandWithSemantics(content: {
+    text: string;
+    images?: Array<{ data: string; type: string; }>;
+  }): Promise<GraphData> {
     if (this.isExpanding) {
       console.log('Waiting for ongoing expansion to complete');
       await this.expandPromise;
@@ -669,7 +691,11 @@ export class GraphManager {
 
     try {
       this.isExpanding = true;
-      console.log('Starting semantic expansion with content');
+      console.log('Starting semantic expansion with content:', {
+        hasText: !!content.text,
+        imageCount: content.images?.length || 0,
+        textLength: content.text.length
+      });
 
       // Get current nodes
       const currentNodes = Array.from(this.graph.nodes()).map(nodeId => ({
@@ -677,12 +703,15 @@ export class GraphManager {
         id: parseInt(nodeId)
       })) as Node[];
 
+      const startTime = performance.now();
+
       // Perform semantic analysis
       const analysisResult = await semanticAnalysis.analyzeContent(content, currentNodes);
       console.log('Semantic analysis complete:', {
         newNodes: analysisResult.nodes.length,
         newEdges: analysisResult.edges.length,
-        reasoning: analysisResult.reasoning
+        reasoning: analysisResult.reasoning,
+        processingTime: `${(performance.now() - startTime).toFixed(2)}ms`
       });
 
       // Add new nodes and edges
@@ -711,6 +740,14 @@ export class GraphManager {
           console.error('Failed to create edge:', error);
         }
       }
+
+      const totalTime = performance.now() - startTime;
+      console.log('Multimodal expansion complete:', {
+        processingTime: `${totalTime.toFixed(2)}ms`,
+        nodesAdded: this.graph.order - currentNodes.length,
+        edgesAdded: this.graph.size - this.graph.edges().length,
+        imageNodes: analysisResult.nodes.filter(n => n.metadata?.imageUrl).length
+      });
 
       return this.calculateMetrics();
     } finally {

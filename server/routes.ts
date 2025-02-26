@@ -191,9 +191,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Add to existing registerRoutes function
+  // Update the analyze endpoint to handle multimodal content
   app.post('/api/graph/analyze', async (req, res) => {
-    const schema = z.object({ content: z.string() });
+    const schema = z.object({
+      content: z.string(),
+      images: z.array(z.object({
+        data: z.string(), // base64 encoded image data
+        type: z.string()  // MIME type
+      })).optional()
+    });
     const result = schema.safeParse(req.body);
 
     if (!result.success) {
@@ -201,8 +207,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      // First perform semantic analysis
-      const semanticResult = await graphManager.expandWithSemantics(result.data.content);
+      // First perform semantic analysis with multimodal content
+      const semanticResult = await graphManager.expandWithSemantics({
+        text: result.data.content,
+        images: result.data.images
+      });
       console.log('Initial semantic analysis complete');
 
       // Then perform recursive expansion

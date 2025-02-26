@@ -18,14 +18,31 @@ interface ValidationResult {
   reasoning: string;
 }
 
+interface MultimodalContent {
+  text: string;
+  images?: Array<{
+    data: string; // base64 encoded image data
+    type: string; // MIME type
+  }>;
+}
+
 export class SemanticAnalysisService {
-  async analyzeContent(content: string, existingNodes: Node[]): Promise<SemanticAnalysisResult> {
+  async analyzeContent(content: MultimodalContent, existingNodes: Node[]): Promise<SemanticAnalysisResult> {
     try {
       const systemPrompt = `You are a semantic analysis expert. Analyze the following content and extract knowledge graph elements.
 
 Important: Your response must be valid JSON in this exact format:
 {
-  "nodes": [{ "label": string, "type": string, "metadata": { "description": string } }],
+  "nodes": [{ 
+    "label": string, 
+    "type": string, 
+    "metadata": { 
+      "description": string,
+      "imageUrl"?: string,
+      "imageDescription"?: string,
+      "documentContext"?: string
+    } 
+  }],
   "edges": [{ "sourceId": number, "targetId": number, "label": string, "weight": number }],
   "reasoning": string
 }
@@ -35,16 +52,37 @@ Rules:
 2. Edge labels should describe meaningful relationships
 3. Edge weights should be between 0 and 1
 4. Include semantic reasoning about why these connections were made
-5. Response must be pure JSON - no explanation text before or after`;
+5. For image nodes, include descriptions and visual context
+6. Response must be pure JSON - no explanation text before or after`;
+
+      // Prepare messages array with text content
+      const messages = [
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "text",
+              text: `${systemPrompt}\n\nExisting nodes:\n${JSON.stringify(existingNodes, null, 2)}\n\nContent to analyze:\n${content.text}`
+            }
+          ]
+        }
+      ];
+
+      // Add image content if available
+      if (content.images?.length) {
+        content.images.forEach(image => {
+          messages[0].content.push({
+            type: "image_url",
+            image_url: {
+              url: `data:${image.type};base64,${image.data}`
+            }
+          });
+        });
+      }
 
       const response = await anthropic.messages.create({
         model: "claude-3-5-sonnet-20241022",
-        messages: [
-          {
-            role: "user",
-            content: `${systemPrompt}\n\nExisting nodes:\n${JSON.stringify(existingNodes, null, 2)}\n\nContent to analyze:\n${content}`
-          }
-        ],
+        messages: messages,
         max_tokens: 1024
       });
 
