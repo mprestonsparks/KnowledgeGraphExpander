@@ -83,8 +83,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         connectedClients: wss.clients.size
       });
 
+      // Set up update handler for streaming updates
+      graphManager.onUpdate = (data) => {
+        console.log('Broadcasting intermediate update:', {
+          nodes: data.nodes.length,
+          edges: data.edges.length,
+          iteration: graphManager.currentIteration + 1,
+          maxIterations
+        });
+        broadcastUpdate(data);
+      };
+
       const updatedGraph = await graphManager.expand(prompt, maxIterations);
-      console.log('Graph expanded, broadcasting update');
+
+      // Clear update handler after completion
+      graphManager.onUpdate = null;
+
+      console.log('Graph expansion complete, sending final update');
       broadcastUpdate(updatedGraph);
       res.json(updatedGraph);
     } catch (error) {

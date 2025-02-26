@@ -12,7 +12,7 @@ interface GraphViewerProps {
 
 const layoutConfig = {
   name: "cose",
-  animate: false,
+  animate: true,
   animationDuration: 500,
   nodeDimensionsIncludeLabels: true,
   refresh: 20,
@@ -217,7 +217,68 @@ export function GraphViewer({ data }: GraphViewerProps) {
         edges: newData.edges?.length || 0
       });
       if (cyRef.current) {
-        refreshGraph();
+        const cy = cyRef.current;
+
+        // Generate cluster colors
+        const clusterColors = newData.clusters ? calculateClusterColors(newData.clusters) : {};
+
+        // Update existing nodes and add new ones
+        newData.nodes.forEach(node => {
+          const nodeId = node.id.toString();
+          const nodeCluster = newData.clusters?.find(c => c.nodes.includes(nodeId));
+
+          if (!cy.getElementById(nodeId).length) {
+            // Add new node with animation
+            cy.add({
+              group: 'nodes',
+              data: {
+                id: nodeId,
+                label: node.label || `Node ${nodeId}`,
+                type: node.type || 'concept',
+                ...(nodeCluster && {
+                  clusterColor: clusterColors[nodeCluster.clusterId],
+                  clusterId: nodeCluster.clusterId
+                })
+              },
+              classes: [
+                ...(nodeCluster ? ['clustered'] : []),
+                ...(nodeCluster?.metadata.centroidNode === nodeId ? ['centroid'] : []),
+                ...(newData.metrics?.degree?.[node.id] === 0 ? ['disconnected'] : [])
+              ]
+            });
+          }
+        });
+
+        // Update existing edges and add new ones
+        newData.edges?.forEach(edge => {
+          const sourceId = edge.sourceId.toString();
+          const targetId = edge.targetId.toString();
+          const edgeId = `e${edge.id}`;
+
+          if (!cy.getElementById(edgeId).length) {
+            // Add new edge with animation
+            cy.add({
+              group: 'edges',
+              data: {
+                id: edgeId,
+                source: sourceId,
+                target: targetId,
+                label: edge.label || 'related_to',
+                weight: edge.weight || 1
+              }
+            });
+          }
+        });
+
+        // Apply incremental layout
+        const layout = cy.layout({
+          ...layoutConfig,
+          animate: true,
+          animationDuration: 500,
+          fit: false
+        });
+
+        layout.run();
       }
     });
 

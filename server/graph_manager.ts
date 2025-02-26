@@ -17,6 +17,8 @@ export class GraphManager {
   private expandPromise: Promise<void> | null = null;
   private currentIteration: number = 0;
   private semanticClustering: SemanticClusteringService;
+  private onUpdate: ((graphData: GraphDataWithClusters) => void) | null = null; // Added onUpdate callback
+
 
   constructor() {
     this.graph = new Graph({ type: "directed", multi: false });
@@ -222,7 +224,9 @@ export class GraphManager {
           disconnectedBefore: this.countDisconnectedNodes()
         };
 
-        // Process validated nodes and edges
+        // Process validated nodes and edges, broadcasting updates incrementally
+        let hasChanges = false;
+
         for (const nodeData of validNodes) {
           try {
             const node = await storage.createNode(nodeData);
@@ -233,6 +237,7 @@ export class GraphManager {
                 label: node.label,
                 type: node.type
               });
+              hasChanges = true;
             }
           } catch (error) {
             console.error('Failed to create node:', {
@@ -257,12 +262,22 @@ export class GraphManager {
                 target: targetId,
                 label: edge.label
               });
+              hasChanges = true;
             }
           } catch (error) {
             console.error('Failed to create edge:', {
               error,
               edgeData
             });
+          }
+        }
+
+        // If we made changes, calculate metrics and emit update
+        if (hasChanges) {
+          const graphData = this.calculateMetrics();
+          // Signal for broadcasting intermediate update
+          if (this.onUpdate) {
+            this.onUpdate(graphData);
           }
         }
 
@@ -274,6 +289,8 @@ export class GraphManager {
         };
 
         console.log('Iteration complete:', {
+          iteration: this.currentIteration + 1,
+          maxIterations,
           before: initialState,
           after: finalState,
           nodesAdded: finalState.nodes - initialState.nodes,
@@ -513,6 +530,10 @@ export class GraphManager {
 
     // Calculate final metrics
     return this.calculateMetrics();
+  }
+
+  setOnUpdateCallback(onUpdate: (graphData: GraphDataWithClusters) => void): void { // Added setOnUpdateCallback
+    this.onUpdate = onUpdate;
   }
 
   async expandWithSemantics(content: string): Promise<GraphData> {
