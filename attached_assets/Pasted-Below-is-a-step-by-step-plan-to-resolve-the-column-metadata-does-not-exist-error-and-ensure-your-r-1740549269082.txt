@@ -1,0 +1,118 @@
+Below is a step-by-step plan to resolve the “column metadata does not exist” error and ensure your refactoring from Graphology (TypeScript) to NetworkX (Python + FastAPI) proceeds smoothly. The key is to add or fix the metadata column in Postgres and then align all references to that column in your code.
+
+1. Confirm You’re Connecting to the Right Database & Table
+	1.	Check Environment Variables
+	•	Ensure the database credentials (DATABASE_URL, PGHOST, PGUSER, etc.) match the DB you intend to modify.
+	•	Verify your dev/staging/production setups aren’t mixing up connections.
+	2.	Check the Table Name
+	•	Make sure the table is actually named edges (no prefix or different name).
+	•	If you’re using multiple schemas, confirm you’re querying the correct one (e.g., public.edges vs. myapp.edges).
+	3.	Inspect Existing Columns
+	•	Run the following query (in psql, a DB client, or the Neon dashboard):
+
+SELECT column_name
+FROM information_schema.columns
+WHERE table_name = 'edges';
+
+
+	•	Confirm metadata truly doesn’t exist. If it does appear, note its data type (maybe it’s spelled differently or typed incorrectly).
+
+2. Add or Fix the metadata Column in Postgres
+
+Since you do want to keep the metadata field, create it if it’s missing (or fix it if it’s incorrect). For structured data, JSONB is recommended:
+
+ALTER TABLE edges
+ADD COLUMN metadata JSONB;
+
+If you already have a column but it’s the wrong type (e.g., TEXT or VARCHAR), you can change it to JSONB:
+
+ALTER TABLE edges
+ALTER COLUMN metadata TYPE JSONB
+USING metadata::jsonb;
+
+	Tip: If you have a migration system (e.g., Knex, Prisma, Flyway), create a formal migration so your dev/staging/prod environments stay in sync.
+
+3. Update Your TypeScript Code (If Needed)
+	1.	Check Insert / Update Queries
+	•	Wherever you insert an edge (in TypeScript), ensure you include metadata in the column list:
+
+await db.query(`
+  INSERT INTO edges (source, target, metadata)
+  VALUES ($1, $2, $3)
+`, [source, target, JSON.stringify(metadata)]);
+
+
+	•	If you’re using an ORM, make sure the model includes metadata as a field of type JSONB or similar.
+
+	2.	Check Select Queries
+	•	For example:
+
+const result = await db.query('SELECT id, source, target, metadata FROM edges');
+
+
+	•	Verify the column name is exactly metadata (case-sensitive in code, though Postgres column names are usually lowercased unless quoted).
+
+	3.	Verify Graphology-Related Logic
+	•	If your old Graphology code stored metadata in a different format or different column, remove or adapt that.
+	•	If you’re still reading from Graphology in the short term, confirm that your edge object structures align with the new DB schema.
+
+4. Align Your Python + NetworkX Code
+	1.	Reading Edges into NetworkX
+	•	In your FastAPI startup or data-loading routine, you might do:
+
+cur.execute("SELECT source, target, metadata FROM edges;")
+rows = cur.fetchall()
+
+for source, target, metadata_json in rows:
+    metadata = metadata_json or {}
+    G.add_edge(source, target, **metadata)
+
+
+	•	Make sure metadata_json is recognized as a JSON/dict in Python. (If you’re using psycopg2 or asyncpg, JSONB columns typically come back as Python dictionaries automatically, but double-check your driver’s behavior.)
+
+	2.	Saving Updated Metadata
+	•	If you modify an edge’s attributes in NetworkX, you can push them back to the DB:
+
+new_metadata = G[source][target]  # a dict of attributes
+cur.execute("""
+    UPDATE edges
+    SET metadata = %s
+    WHERE source = %s AND target = %s
+""", (Json(new_metadata), source, target))
+
+(If using psycopg2.extras.Json, you can pass a dict and it’ll store properly in JSONB.)
+
+	3.	Confirm Data Flow
+	•	If you plan to keep a “live” graph in Python, confirm how often you read from/write to Postgres so changes remain consistent.
+
+5. Test in Development
+	1.	Check the Column is Created
+	•	After running your ALTER TABLE or migration, do:
+
+\d edges
+
+in psql (or check in your GUI). Confirm metadata is listed as jsonb (or your chosen type).
+
+	2.	Run Your Server
+	•	npm run dev (Node/TypeScript side) and uvicorn main:app --reload (Python side, if separate).
+	•	Watch for any new errors in the logs. The “column metadata does not exist” error should be gone if the DB is correct.
+	3.	Insert / Fetch Edges
+	•	Try creating new edges via your API or direct DB insert.
+	•	Retrieve them to confirm metadata is present and parseable.
+
+6. Deploy / Migrate Production (If Applicable)
+	1.	Repeat the Migration
+	•	Deploy your code changes and the DB migration to production.
+	•	Confirm the edges table in production has the metadata column.
+	2.	Validate Logs
+	•	Monitor logs for any references to missing columns or invalid column types.
+	•	Ensure no old code is still referencing a now-removed or differently-named column.
+
+7. Housekeeping & Next Steps
+	•	Remove Old Graphology-Only Columns: If your old code had columns you no longer need, clean them up in a separate migration.
+	•	Consolidate Edge Metadata: Make sure your new Python-based system (NetworkX + FastAPI) has a clear approach to storing and retrieving edge data.
+	•	Document: Keep a small doc or readme about how edges are stored in Postgres, including the metadata field format (JSONB structure).
+
+Conclusion
+
+By adding the metadata column (or fixing it if it’s incorrectly named or typed), updating your queries, and verifying your environment is pointed at the correct Postgres instance, you’ll resolve the “column metadata does not exist” error. After that, you can seamlessly store and retrieve edge metadata in both your TypeScript and Python (NetworkX) layers.

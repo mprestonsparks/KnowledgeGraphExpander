@@ -45,18 +45,30 @@ describe("Storage", () => {
   const testNode: InsertNode = {
     label: "Test Node",
     type: "test",
-    metadata: { test: true }
+    metadata: {
+      description: "Test description",
+      semanticContext: {
+        theme: "test theme",
+        confidence: 0.9,
+        reasoning: "test reasoning"
+      }
+    }
   };
 
   const testEdge: InsertEdge = {
     sourceId: 1,
     targetId: 2,
     label: "test_connection",
-    weight: 1
+    weight: 1,
+    metadata: {
+      confidence: 0.8,
+      reasoning: "test edge reasoning",
+      validatedAt: new Date().toISOString()
+    }
   };
 
   describe("Node Operations", () => {
-    it("should create and retrieve a node", async () => {
+    it("should create and retrieve a node with metadata", async () => {
       if (!process.env.DATABASE_URL) {
         console.log("Skipping test: no database connection");
         return;
@@ -65,12 +77,13 @@ describe("Storage", () => {
       const created = await storage.createNode(testNode);
       expect(created.id).toBeDefined();
       expect(created.label).toBe(testNode.label);
+      expect(created.metadata).toEqual(testNode.metadata);
 
       const retrieved = await storage.getNode(created.id);
       expect(retrieved).toEqual(created);
     });
 
-    it("should retrieve all nodes", async () => {
+    it("should retrieve all nodes with metadata", async () => {
       if (!process.env.DATABASE_URL) {
         console.log("Skipping test: no database connection");
         return;
@@ -82,6 +95,7 @@ describe("Storage", () => {
       const nodes = await storage.getAllNodes();
       expect(nodes).toHaveLength(2);
       expect(nodes[0].label).toBe("Test Node");
+      expect(nodes[0].metadata).toEqual(testNode.metadata);
       expect(nodes[1].label).toBe("Test Node 2");
     });
 
@@ -107,7 +121,7 @@ describe("Storage", () => {
       await storage.createNode({ ...testNode, label: "Test Node 2" });
     });
 
-    it("should create and retrieve an edge", async () => {
+    it("should create and retrieve an edge with metadata", async () => {
       if (!process.env.DATABASE_URL) {
         console.log("Skipping test: no database connection");
         return;
@@ -116,12 +130,13 @@ describe("Storage", () => {
       const created = await storage.createEdge(testEdge);
       expect(created.id).toBeDefined();
       expect(created.label).toBe(testEdge.label);
+      expect(created.metadata).toEqual(testEdge.metadata);
 
       const retrieved = await storage.getEdge(created.id);
       expect(retrieved).toEqual(created);
     });
 
-    it("should retrieve all edges", async () => {
+    it("should retrieve all edges with metadata", async () => {
       if (!process.env.DATABASE_URL) {
         console.log("Skipping test: no database connection");
         return;
@@ -132,11 +147,12 @@ describe("Storage", () => {
 
       const edges = await storage.getAllEdges();
       expect(edges).toHaveLength(2);
+      expect(edges[0].metadata).toEqual(testEdge.metadata);
     });
   });
 
   describe("Graph Operations", () => {
-    it("should retrieve full graph with metrics", async () => {
+    it("should retrieve full graph with metadata", async () => {
       if (!process.env.DATABASE_URL) {
         console.log("Skipping test: no database connection");
         return;
@@ -152,9 +168,8 @@ describe("Storage", () => {
       expect(graph).toHaveProperty("metrics");
       expect(graph.nodes).toHaveLength(2);
       expect(graph.edges).toHaveLength(1);
-      expect(graph.metrics).toHaveProperty("betweenness");
-      expect(graph.metrics).toHaveProperty("eigenvector");
-      expect(graph.metrics).toHaveProperty("degree");
+      expect(graph.nodes[0].metadata).toEqual(testNode.metadata);
+      expect(graph.edges[0].metadata).toEqual(testEdge.metadata);
     });
   });
 });

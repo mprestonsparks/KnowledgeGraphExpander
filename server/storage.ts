@@ -40,8 +40,12 @@ class PostgresStorage implements IStorage {
 
   async createNode(insertNode: InsertNode): Promise<Node> {
     try {
-      const result = await db.insert(nodes).values(insertNode).returning();
-      return result[0];
+      const [result] = await db.insert(nodes).values({
+        label: insertNode.label,
+        type: insertNode.type,
+        metadata: insertNode.metadata || {}
+      }).returning();
+      return result;
     } catch (error) {
       console.error('Error creating node:', error);
       throw new Error('Failed to create node');
@@ -69,8 +73,14 @@ class PostgresStorage implements IStorage {
 
   async createEdge(insertEdge: InsertEdge): Promise<Edge> {
     try {
-      const result = await db.insert(edges).values(insertEdge).returning();
-      return result[0];
+      const [result] = await db.insert(edges).values({
+        sourceId: insertEdge.sourceId,
+        targetId: insertEdge.targetId,
+        label: insertEdge.label,
+        weight: insertEdge.weight,
+        metadata: insertEdge.metadata || {}
+      }).returning();
+      return result;
     } catch (error) {
       console.error('Error creating edge:', error);
       throw new Error('Failed to create edge');
@@ -91,6 +101,12 @@ class PostgresStorage implements IStorage {
           betweenness: {},
           eigenvector: {},
           degree: {},
+          scaleFreeness: {
+            powerLawExponent: 0,
+            fitQuality: 0,
+            hubNodes: [],
+            bridgingNodes: []
+          }
         }
       };
     } catch (error) {
