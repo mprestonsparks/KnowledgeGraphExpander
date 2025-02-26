@@ -1,0 +1,72 @@
+Prompt Instruction:
+
+Investigate why the TypeScript compiler cannot resolve certain modules, why some JSX components are failing to render, and why parameters and imports have mismatched or missing types. Specifically, determine if:
+	1.	The @ alias paths are configured properly in tsconfig.json.
+	2.	All third-party libraries (e.g., cytoscape, @/lib/queryClient, UI libraries) have type definitions installed or declared.
+	3.	React components (e.g., Loader2) have valid types for usage in JSX.
+	4.	Event handlers are correctly typed, especially when noImplicitAny is enabled.
+	5.	Unused imports (e.g., screen) are cleaned up or properly utilized.
+
+Procedure for Correcting the Code:
+	1.	Check TypeScript Configuration:
+	•	In your tsconfig.json, confirm that baseUrl and paths are set up to match your project’s folder structure. For example:
+
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+    // ...
+  }
+}
+
+
+	•	Ensure your build tools (Vite, Jest, etc.) also understand these alias paths (they may need a corresponding configuration in vite.config.js or jest.config.js).
+
+	2.	Install and Declare Missing Types:
+	•	For libraries such as cytoscape, install the official type definitions:
+
+npm install --save-dev @types/cytoscape
+
+If no official typings exist, create a global.d.ts or typings.d.ts file with a declare module 'library-name'; statement.
+
+	•	Verify that each @/components/... and @/lib/... path has a corresponding TypeScript file or type declaration.
+
+	3.	Fix Invalid JSX Usage:
+	•	If Loader2 is a third-party component that isn’t recognized as a valid JSX element, install or configure its TypeScript definitions, or wrap it in a React component that properly defines its props.
+	•	Check whether the library exports a valid React component. If it’s a standard SVG or non-React element, you may need a custom wrapper.
+	4.	Type Event Handlers Properly:
+	•	When noImplicitAny is set, give your handlers explicit types:
+
+const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  setIterationCount(e.target.value);
+};
+
+
+	•	This ensures TypeScript knows the shape of e and prevents “implicitly has an ‘any’ type” errors.
+
+	5.	Remove or Use Unused Imports:
+	•	If screen from @testing-library/react is never used, remove it to satisfy TypeScript’s unused variable checks or use it properly in your tests.
+	6.	Rebuild and Test:
+	•	After updating paths, installing type definitions, and fixing invalid JSX usage, run:
+
+npm run build
+
+or
+
+yarn build
+
+Ensure the errors are resolved.
+
+	•	Confirm your tests also pass with:
+
+npm run test
+
+or
+
+yarn test
+
+
+
+By methodically addressing each missing module declaration, improper alias configuration, and type mismatch, you will uncover the underlying causes of the compiler errors and restore a clean build.
