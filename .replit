@@ -15,6 +15,10 @@ run = ["python", "main.py"]
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 5173
+externalPort = 5173
+
 [env]
 PYTHONPATH = "."
 DATABASE_URL = "postgresql://neondb_owner:npg_UuYP8ajchEx1@ep-polished-smoke-a465m3uc.us-east-1.aws.neon.tech/neondb?sslmode=require"

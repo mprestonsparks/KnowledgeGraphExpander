@@ -1,5 +1,12 @@
 #!/bin/bash
 # Start the FastAPI backend
+HOST="0.0.0.0"
+PORT="3000"
+
+# Export environment variables for the frontend
+export VITE_API_URL="http://localhost:${PORT}"
+
+# Start the FastAPI backend
 python main.py &
 pid_backend=$!
 
@@ -7,7 +14,7 @@ pid_backend=$!
 sleep 2
 
 # Start the frontend dev server
-cd frontend && npm run dev &
+cd frontend && npm run dev -- --host $HOST &
 pid_frontend=$!
 
 # Wait for both processes
