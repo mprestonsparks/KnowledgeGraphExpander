@@ -2,10 +2,9 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 
 interface RelationshipSuggestion {
   sourceId: number;
@@ -35,7 +34,7 @@ async function applySuggestion(suggestion: {
 }
 
 export function SuggestionsPanel() {
-  const { toast } = useToast();
+  const [feedback, setFeedback] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const { data: suggestions = [], isLoading, refetch } = useQuery({
@@ -49,17 +48,12 @@ export function SuggestionsPanel() {
     mutationFn: applySuggestion,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/graph"] });
-      toast({
-        title: "Suggestion applied",
-        description: "The relationship has been added to the graph.",
-      });
+      setFeedback({ message: "Suggestion applied successfully", type: "success" });
+      setTimeout(() => setFeedback(null), 3000);
     },
     onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to apply the suggestion.",
-        variant: "destructive",
-      });
+      setFeedback({ message: "Failed to apply suggestion", type: "error" });
+      setTimeout(() => setFeedback(null), 3000);
     },
   });
 
@@ -82,13 +76,20 @@ export function SuggestionsPanel() {
           onClick={refreshSuggestions}
           disabled={isLoading || isRefreshing}
         >
-          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          <RefreshCwIcon className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
         </Button>
       </CardHeader>
       <CardContent>
+        {feedback && (
+          <div className={`mb-4 p-2 rounded ${
+            feedback.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          }`}>
+            {feedback.message}
+          </div>
+        )}
         {isLoading ? (
           <div className="flex justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <Loader2Icon className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : suggestions.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">
