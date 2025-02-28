@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 os.makedirs("server/routes", exist_ok=True)
 os.makedirs("server/models", exist_ok=True)
 
-# Import database and graph manager after directory creation
+# Import after directory creation
 from server.database import init_db, cleanup_pool
 from server.graph_manager import graph_manager
 
@@ -59,7 +59,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Import routes after database initialization
+# Import routes
 from server.routes import graph, suggestions, websocket
 
 # Include routers
@@ -132,41 +132,7 @@ async def health_check():
     logger.info("Handling health check request")
     return {"status": "healthy"}
 
-# Error handling middleware
-@app.middleware("http")
-async def error_handling_middleware(request: Request, call_next):
-    try:
-        response = await call_next(request)
-        return response
-    except Exception as e:
-        logger.error(f"Unhandled error: {str(e)}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={"detail": str(e)}
-        )
-
-# Ensure frontend/dist directory exists
-frontend_path = pathlib.Path("frontend/dist")
-if not frontend_path.exists():
-    logger.warning(f"Directory {frontend_path} does not exist. Creating it...")
-    frontend_path.mkdir(parents=True, exist_ok=True)
-    # Create a temporary index.html if it doesn't exist
-    index_path = frontend_path / "index.html"
-    if not index_path.exists():
-        index_path.write_text("""
-        <!DOCTYPE html>
-        <html>
-            <head>
-                <title>Knowledge Graph System</title>
-            </head>
-            <body>
-                <h1>Knowledge Graph System</h1>
-                <p>The frontend is being built...</p>
-            </body>
-        </html>
-        """)
-
-# Mount static files last to ensure API routes take precedence
-app.mount("/static", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+# Mount static files
+app.mount("/static", StaticFiles(directory="frontend/dist", html=True), name="frontend")
 
 logger.info("FastAPI application setup complete")

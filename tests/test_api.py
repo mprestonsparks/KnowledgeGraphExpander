@@ -2,16 +2,16 @@ import pytest
 from fastapi.testclient import TestClient
 import logging
 from server.app import app
-from server.graph_manager import graph_manager
 
 # Configure logging for tests
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def client():
     """Create a test client."""
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
 
 def test_health_check(client):
     """Test the health check endpoint."""
@@ -38,7 +38,8 @@ def test_root_endpoint(client):
         logger.error(f"Root endpoint test failed: {str(e)}", exc_info=True)
         raise
 
-def test_get_graph_data(client):
+@pytest.mark.asyncio
+async def test_get_graph_data(client):
     """Test the graph data retrieval endpoint."""
     try:
         response = client.get("/api/graph")
@@ -52,7 +53,8 @@ def test_get_graph_data(client):
         logger.error(f"Graph data retrieval test failed: {str(e)}", exc_info=True)
         raise
 
-def test_expand_graph(client):
+@pytest.mark.asyncio
+async def test_expand_graph(client):
     """Test the graph expansion endpoint."""
     try:
         test_data = {
@@ -71,7 +73,8 @@ def test_expand_graph(client):
         logger.error(f"Graph expansion test failed: {str(e)}", exc_info=True)
         raise
 
-def test_analyze_content(client):
+@pytest.mark.asyncio
+async def test_analyze_content(client):
     """Test the content analysis endpoint."""
     try:
         test_content = {
@@ -90,7 +93,8 @@ def test_analyze_content(client):
         logger.error(f"Content analysis endpoint test failed: {str(e)}", exc_info=True)
         raise
 
-def test_reapply_clustering(client):
+@pytest.mark.asyncio
+async def test_reapply_clustering(client):
     """Test the clustering reapplication endpoint."""
     try:
         response = client.post("/api/graph/cluster")
