@@ -3,6 +3,7 @@ import logging
 import json
 import base64
 from typing import Dict, List, Any, Optional, Union
+from fastapi import HTTPException
 from anthropic import AsyncAnthropic
 
 logger = logging.getLogger(__name__)
@@ -34,15 +35,30 @@ def is_valid_base64(str_val: str) -> bool:
 
 async def analyze_content(content: Dict[str, Any], existing_nodes: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Analyze content and extract knowledge graph elements"""
-    if existing_nodes is None:
-        existing_nodes = []
-
     try:
+        if not content:
+            raise HTTPException(status_code=400, detail="Content cannot be empty")
+
+        if not content.get("text"):
+            raise HTTPException(status_code=400, detail="Text content is required")
+
+        if len(content["text"]) > 50000:  # Add reasonable limit
+            raise HTTPException(status_code=400, detail="Text content exceeds maximum length")
+
+        if existing_nodes is None:
+            existing_nodes = []
+
         # Validate image data if present
         if content.get("images"):
             for image in content["images"]:
+                if not isinstance(image, dict) or "data" not in image or "type" not in image:
+                    raise HTTPException(status_code=400, detail="Invalid image format")
                 if not is_valid_base64(image.get("data", "")):
-                    raise ValueError('Invalid image data format')
+                    raise HTTPException(status_code=400, detail="Invalid image data format")
+
+        # Check for API key
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise HTTPException(status_code=500, detail="Anthropic API key not configured")
 
         # Prepare system prompt
         system_prompt = """You are a semantic analysis expert. Analyze the following content and extract knowledge graph elements.
@@ -98,17 +114,39 @@ Content to analyze:
                     }
                 })
 
-        # Call the Anthropic API
-        response = await anthropic_client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1024,
-            system=system_prompt,
-            messages=[user_message]
-        )
+        try:
+            # Call the Anthropic API
+            response = await anthropic_client.messages.create(
+                model="claude-3-7-sonnet-20250219",
+                max_tokens=1024,
+                system=system_prompt,
+                messages=[user_message]
+            )
+        except Exception as e:
+            logger.error(f"Anthropic API error: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error calling Anthropic API: {str(e)}"
+            )
 
         # Parse the response
-        response_text = response.content[0].text
-        parsed_response = json.loads(response_text)
+        try:
+            response_text = response.content[0].text
+            parsed_response = json.loads(response_text)
+        except (json.JSONDecodeError, AttributeError, IndexError) as e:
+            logger.error(f"Failed to parse API response: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Invalid response from semantic analysis"
+            )
+
+        # Validate response structure
+        required_fields = ["nodes", "edges", "reasoning"]
+        if not all(field in parsed_response for field in required_fields):
+            raise HTTPException(
+                status_code=500,
+                detail="Incomplete response from semantic analysis"
+            )
 
         # Add IDs to new nodes starting after the last existing node ID
         last_node_id = max([0] + [n.get("id", 0) for n in existing_nodes])
@@ -128,9 +166,14 @@ Content to analyze:
         logger.info(f"Analysis complete with {len(result['nodes'])} nodes and {len(result['edges'])} edges")
         return result
 
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
     except Exception as e:
         logger.error(f'Semantic analysis failed: {str(e)}', exc_info=True)
-        raise
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error during semantic analysis: {str(e)}"
+        )
 
 async def validate_relationships(source_node: Dict[str, Any], target_nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Validate relationships between nodes"""
