@@ -79,6 +79,11 @@ class TestAnalyzer:
             if not line:
                 continue
 
+            if "Running test module:" in line:
+                current_module = line.split("Running test module:")[1].strip()
+                logger.info(f"Found test module section: {current_module}")
+                continue
+
             if "=== short test summary info ===" in line:
                 in_progress = False
                 in_summary = True
@@ -92,6 +97,17 @@ class TestAnalyzer:
                     error_details[key] = error_msg
                     logger.debug(f"Found error details for {key}: {error_msg}")
 
+            # Handle timeout cases in both progress and summary sections
+            if "⚠️ Tests timed out" in line and current_module:
+                failures[current_module].append({
+                    "test": "module_timeout",
+                    "error": "Test execution timed out",
+                    "error_type": "timeout",
+                    "file": f"tests/test_{current_module}.py"
+                })
+                logger.info(f"Recorded timeout for module: {current_module}")
+                continue
+
         # Reset for second pass
         in_progress = True
         in_summary = False
@@ -104,17 +120,6 @@ class TestAnalyzer:
 
             if "Running test module:" in line:
                 current_module = line.split("Running test module:")[1].strip()
-                logger.info(f"Found test module section: {current_module}")
-                continue
-
-            if "⚠️ Tests timed out" in line and current_module:
-                failures[current_module].append({
-                    "test": "module_timeout",
-                    "error": "Test execution timed out",
-                    "error_type": "timeout",
-                    "file": f"tests/test_{current_module}.py"
-                })
-                logger.info(f"Recorded timeout for module: {current_module}")
                 continue
 
             if current_module and "FAILED" in line and "::" in line:
@@ -122,8 +127,13 @@ class TestAnalyzer:
                 if progress_match:
                     file_path, test_name = progress_match.groups()[:2]
                     key = f"{file_path}::{test_name}"
+
+                    # Check if this failure was due to a timeout
                     error_msg = error_details.get(key, "Test failed")
-                    error_type = self._determine_error_type(error_msg)
+                    error_type = (
+                        "timeout" if "timeout" in error_msg.lower() or "⚠️ Tests timed out" in error_msg
+                        else self._determine_error_type(error_msg)
+                    )
 
                     failure = {
                         "test": test_name,

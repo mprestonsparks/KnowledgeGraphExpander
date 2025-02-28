@@ -15,29 +15,37 @@ if [ ! -s tests/reports/test-output.txt ]; then
     exit 1
 fi
 
-# Generate summary markdown
-echo "# Test Execution Summary" > tests/reports/test-summary.md
-echo "\`\`\`" >> tests/reports/test-summary.md
-grep -A 5 "Test Files" tests/reports/test-output.txt >> tests/reports/test-summary.md || true
-echo "\`\`\`" >> tests/reports/test-summary.md
-
-# Extract failed tests if any
-echo -e "\n## Failed Tests" >> tests/reports/test-summary.md
-echo "\`\`\`" >> tests/reports/test-summary.md
-grep -B 1 -A 3 "FAIL" tests/reports/test-output.txt >> tests/reports/test-summary.md || true
-echo "\`\`\`" >> tests/reports/test-summary.md
-
 # Run strategy analysis
 echo "Analyzing test results..."
 bash tests/analyze_strategy.sh
 
 # Update the main test report with categorized issues
 echo "# Test Report Summary" > tests/reports/test-report.md
-echo -e "\nTest Results:" >> tests/reports/test-report.md
-cat tests/reports/test-summary.md >> tests/reports/test-report.md
 
-echo -e "\nStrategy Analysis:" >> tests/reports/test-report.md
-cat tests/strategy_logs/latest_summary.md >> tests/reports/test-report.md
+# Add test execution summary
+echo -e "\n## Test Results" >> tests/reports/test-report.md
+echo '```' >> tests/reports/test-report.md
+grep -A 5 "Test Files" tests/reports/test-output.txt >> tests/reports/test-report.md || true
+echo '```' >> tests/reports/test-report.md
+
+# Add failed tests section if there are failures
+echo -e "\n## Failed Tests" >> tests/reports/test-report.md
+if grep -q "FAILED" tests/reports/test-output.txt; then
+    echo '```' >> tests/reports/test-report.md
+    grep -B 1 -A 3 "FAILED" tests/reports/test-output.txt >> tests/reports/test-report.md || true
+    echo '```' >> tests/reports/test-report.md
+else
+    echo "No test failures found." >> tests/reports/test-report.md
+fi
+
+# Add the latest strategy analysis
+echo -e "\n## Strategy Analysis" >> tests/reports/test-report.md
+if [ -f tests/strategy_logs/latest_summary.md ]; then
+    # Skip the header from latest_summary.md (first 2 lines) to avoid duplication
+    tail -n +3 tests/strategy_logs/latest_summary.md >> tests/reports/test-report.md
+else
+    echo "No strategy analysis available." >> tests/reports/test-report.md
+fi
 
 chmod +x tests/analyze_strategy.sh
 chmod +x .git/hooks/pre-push
