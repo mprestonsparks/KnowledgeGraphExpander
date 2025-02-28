@@ -42,3 +42,71 @@ syntax = "typescript"
 [languages.javascript]
 pattern = "**/*.{js,jsx}"
 syntax = "javascript"
+
+[workflows]
+
+[[workflows.workflow]]
+name = "parallel tasks"
+mode = "parallel"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "API tests"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "integration tests"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "semantic API tests"
+
+[[workflows.workflow]]
+name = "database setup"
+mode = "sequential"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python -c \"      import asyncio      from server.database import init_db, cleanup_pool            async def setup_db():          await init_db()          await cleanup_pool()            asyncio.run(setup_db())      \""
+
+[[workflows.workflow]]
+name = "API tests"
+mode = "parallel"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pytest tests/test_api.py -v`"
+
+[[workflows.workflow]]
+name = "integration tests"
+mode = "parallel"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "`pytest tests/test_integration.py -v`"
+
+[[workflows.workflow]]
+name = "semantic API tests"
+mode = "parallel"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "`pytest tests/test_semantic_api.py -v`"
+
+[[workflows.workflow]]
+name = "test suite runner"
+mode = "sequential"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "database setup"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "parallel tasks"
