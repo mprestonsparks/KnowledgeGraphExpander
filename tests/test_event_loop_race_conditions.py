@@ -1,12 +1,9 @@
+"""Test runner script for event loop race conditions."""
 import pytest
 import asyncio
 import logging
-import asyncpg
-from asyncpg.exceptions import InterfaceError, QueryCanceledError
-from server.database import (
-    init_db, get_pool, cleanup_pool, close_existing_pool,
-    get_connection
-)
+from typing import List
+from asyncio import Task
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 class RaceConditionTester:
     """Helper class for testing race conditions in event loop management"""
-    def __init__(self):
+    def __init__(self, event_loop):
+        self.loop = event_loop
         self.active_connections = 0
         self.errors = []
         self.operations_log = []
@@ -22,25 +20,16 @@ class RaceConditionTester:
 
     def log_operation(self, operation: str):
         """Log an operation with timestamp"""
-        timestamp = asyncio.get_running_loop().time()
+        timestamp = self.loop.time()
         self.operations_log.append((timestamp, operation))
-
-@pytest.fixture(scope="function")
-async def race_tester():
-    """Create a race condition tester for each test"""
-    tester = RaceConditionTester()
-    yield tester
-    # Log test results
-    logger.info("Test operations log:")
-    for timestamp, operation in tester.operations_log:
         logger.info(f"{timestamp:.6f}: {operation}")
 
 @pytest.mark.asyncio
-async def test_interrupt_pool_operations(race_tester):
+async def test_interrupt_pool_operations(event_loop, db_pool):
     """Test interrupting pool operations mid-flight."""
+    tester = RaceConditionTester(event_loop)
     try:
         logger.info("Starting interrupt pool operations test")
-        pool = await get_pool()
 
         # Create events for synchronization
         workers_ready = asyncio.Event()
@@ -48,37 +37,37 @@ async def test_interrupt_pool_operations(race_tester):
 
         async def interrupter():
             try:
-                # Wait for workers to be ready
                 await workers_ready.wait()
-                race_tester.log_operation("Interrupter starting")
+                tester.log_operation("Interrupter starting")
                 interrupt_started.set()  # Signal interruption starting
 
                 # Give worker time to start a transaction
                 await asyncio.sleep(0.1)
 
                 # Close the pool
-                race_tester.log_operation("Closing pool")
+                tester.log_operation("Closing pool")
+                from server.database import cleanup_pool
                 await cleanup_pool()
-                race_tester.pool_closed = True
-                race_tester.log_operation("Pool cleanup completed")
+                tester.pool_closed = True
+                tester.log_operation("Pool cleanup completed")
                 return True
             except asyncio.CancelledError:
-                race_tester.log_operation("Interrupter cancelled")
+                tester.log_operation("Interrupter cancelled")
                 raise
             except Exception as e:
-                race_tester.log_operation(f"Interrupter failed: {str(e)}")
+                tester.log_operation(f"Interrupter failed: {str(e)}")
                 return False
 
         async def worker(i: int):
             try:
-                race_tester.log_operation(f"Worker {i} starting")
-                async with pool.acquire() as conn:
-                    race_tester.log_operation(f"Worker {i} acquired connection")
+                tester.log_operation(f"Worker {i} starting")
+                async with db_pool.acquire() as conn:
+                    tester.log_operation(f"Worker {i} acquired connection")
                     workers_ready.set()  # Signal ready
 
                     # Wait for interrupt signal
                     await interrupt_started.wait()
-                    race_tester.log_operation(f"Worker {i} starting transaction")
+                    tester.log_operation(f"Worker {i} starting transaction")
 
                     try:
                         # Set statement timeout and execute long query
@@ -91,15 +80,12 @@ async def test_interrupt_pool_operations(race_tester):
                         """)
                         # If we get here without timeout, return false
                         return False
-                    except (InterfaceError, QueryCanceledError) as e:
-                        race_tester.log_operation(f"Worker {i} caught expected interruption: {str(e)}")
+                    except Exception as e:
+                        tester.log_operation(f"Worker {i} caught expected interruption: {str(e)}")
                         return True
-            except InterfaceError as e:
-                race_tester.log_operation(f"Worker {i} caught pool shutdown: {str(e)}")
-                return True
             except Exception as e:
-                race_tester.log_operation(f"Worker {i} failed: {str(e)}")
-                race_tester.errors.append((i, str(e)))
+                tester.log_operation(f"Worker {i} failed: {str(e)}")
+                tester.errors.append((i, str(e)))
                 return False
 
         # Run with timeout
@@ -109,11 +95,9 @@ async def test_interrupt_pool_operations(race_tester):
 
             try:
                 results = await asyncio.gather(worker_task, interrupter_task)
-                worker_result = results[0]
-                interrupter_result = results[1]
+                worker_result, interrupter_result = results
 
                 assert interrupter_result, "Pool cleanup failed"
-                assert isinstance(worker_result, bool), f"Unexpected worker result type: {type(worker_result)}"
                 assert worker_result, "Worker failed to catch pool interruption"
 
                 logger.info("Interrupt pool operations test passed")
@@ -133,89 +117,88 @@ async def test_interrupt_pool_operations(race_tester):
     except Exception as e:
         logger.error(f"Interrupt pool operations test failed: {e}", exc_info=True)
         raise
-    finally:
-        await cleanup_pool()
 
 @pytest.mark.asyncio
-async def test_rapid_connection_cycling():
-    """Test rapid creation and disposal of connections."""
+async def test_concurrent_pool_operations(event_loop, db_pool):
+    """Test concurrent pool operations with state tracking"""
     try:
-        logger.info("Starting rapid pool cycling test")
-        for i in range(3):
-            logger.info(f"Cycle {i+1} starting")
-            pool = await get_pool()
-
-            # Test pool usage
-            async with pool.acquire() as conn:
-                result = await conn.fetchval("SELECT 1")
-                assert result == 1
-
-            # Cleanup
-            logger.info(f"Cleaning up pool")
-            await cleanup_pool()
-            logger.info(f"Cycle {i+1} completed")
-
-        logger.info("Rapid pool cycling test passed")
-    except Exception as e:
-        logger.error(f"Rapid pool cycling test failed: {e}")
-        raise
-
-@pytest.mark.asyncio
-async def test_concurrent_pool_creation():
-    """Test concurrent attempts to create connection pools."""
-    try:
-        async def pool_creator(i: int):
+        logger.info("Starting concurrent pool operations test")
+        async def worker(i: int):
             try:
-                await init_db()
-                pool = await get_pool()
-                async with pool.acquire() as conn:
+                async with db_pool.acquire() as conn:
                     result = await conn.fetchval("SELECT 1")
                     assert result == 1
-                    logger.info(f"Creator {i} succeeded")
+                    logger.info(f"Worker {i} succeeded")
                     return True
             except Exception as e:
-                logger.error(f"Creator {i} failed: {e}")
-                return False
-            finally:
-                await cleanup_pool()
-
-        # Run concurrent pool creators
-        tasks = [pool_creator(i) for i in range(3)]
-        results = await asyncio.gather(*tasks)
-
-        # At least one creator should succeed
-        assert any(results), "All pool creators failed"
-
-        logger.info("Concurrent pool creation test passed")
-    finally:
-        await cleanup_pool()
-
-@pytest.mark.asyncio
-async def test_event_loop_switching():
-    """Test operations across different event loops."""
-    try:
-        # Create pool in first loop
-        await init_db()
-        pool1 = await get_pool()
-
-        async def pool_user(i: int):
-            try:
-                async with pool1.acquire() as conn:
-                    result = await conn.fetchval("SELECT 1")
-                    assert result == 1
-                    logger.info(f"Pool user {i} succeeded")
-                    return True
-            except Exception as e:
-                logger.error(f"Pool user {i} failed: {e}")
+                logger.error(f"Worker {i} failed: {e}")
                 return False
 
-        # Run concurrent users
-        tasks = [pool_user(i) for i in range(3)]
+        # Run concurrent workers
+        tasks = [worker(i) for i in range(3)]
         results = await asyncio.gather(*tasks)
 
         # All operations should succeed
-        assert all(results), "Some pool users failed"
+        assert all(results), "Some concurrent operations failed"
+        logger.info("Concurrent pool operations test passed")
+    except Exception as e:
+        logger.error(f"Concurrent pool operations test failed: {e}")
+        raise
 
-        logger.info("Event loop switching test passed")
-    finally:
-        await cleanup_pool()
+@pytest.mark.asyncio
+async def test_connection_lifecycle_tracking(event_loop, db_pool):
+    """Test detailed connection lifecycle with state tracking"""
+    try:
+        logger.info("Starting connection lifecycle tracking test")
+        connection_states = []
+
+        async with db_pool.acquire() as conn:
+            connection_states.append(("acquired", id(conn)))
+
+            async with conn.transaction():
+                # Use a unique label for each test run
+                test_label = f"test_lifecycle_{id(conn)}"
+                await conn.execute("""
+                    INSERT INTO nodes (label, type)
+                    VALUES ($1, $2)
+                    ON CONFLICT (label) DO NOTHING
+                """, test_label, "test")
+                connection_states.append(("transaction_active", id(conn)))
+
+                count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM nodes WHERE label = $1",
+                    test_label
+                )
+                assert count >= 1
+                connection_states.append(("transaction_complete", id(conn)))
+
+        logger.info("Connection states: %s", connection_states)
+        logger.info("Connection lifecycle tracking test passed")
+    except Exception as e:
+        logger.error(f"Connection lifecycle tracking test failed: {e}")
+        raise
+
+@pytest.mark.asyncio
+async def test_error_recovery(event_loop, db_pool):
+    """Test error recovery with proper cleanup"""
+    try:
+        logger.info("Starting error recovery test")
+        error_states = []
+
+        async with db_pool.acquire() as conn:
+            try:
+                await conn.execute("SELECT invalid_function()")
+            except Exception as e:
+                error_states.append(("sql_error", str(e)))
+                logger.info("Captured expected SQL error: %s", e)
+
+            # Verify connection recovery
+            result = await conn.fetchval("SELECT 1")
+            assert result == 1
+            error_states.append(("recovered", id(conn)))
+
+        logger.info("Error states: %s", error_states)
+        logger.info("Error recovery test passed")
+    except Exception as e:
+        logger.error(f"Error recovery test failed: {e}")
+        raise

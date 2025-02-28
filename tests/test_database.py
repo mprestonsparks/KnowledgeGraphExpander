@@ -19,55 +19,52 @@ async def db_pool():
         await cleanup_pool()
 
 @pytest.mark.asyncio
-async def test_database_connection_lifecycle():
+async def test_database_connection_lifecycle(db_pool):
     """Test database connection."""
     try:
-        pool = await get_pool()
-        assert pool is not None
-        logger.info("Pool created successfully")
-
-        async with pool.acquire() as conn:
+        async with db_pool.acquire() as conn:
             result = await conn.fetchval("SELECT 1")
             assert result == 1
             logger.info("Connection verified")
 
         logger.info("Database lifecycle test passed")
-    finally:
-        await cleanup_pool()
+    except Exception as e:
+        logger.error(f"Database lifecycle test failed: {e}")
+        raise
 
 @pytest.mark.asyncio
 async def test_connection_error_handling(db_pool):
     """Test error handling in connection management."""
     try:
-        # First transaction - test invalid query
+        # Test invalid query
         async with db_pool.acquire() as conn:
             async with conn.transaction():
                 with pytest.raises(asyncpg.PostgresError):
                     await conn.execute("INVALID SQL")
                 logger.info("Invalid query handling verified")
 
-        # Second transaction - test rollback
+        # Test transaction rollback
         async with db_pool.acquire() as conn:
-            async with conn.transaction():
-                try:
+            test_label = f"test_rollback_{id(conn)}"
+            try:
+                async with conn.transaction():
                     await conn.execute("""
                         INSERT INTO nodes (label, type) 
                         VALUES ($1, $2)
                         """, 
-                        "test", "test_type"
+                        test_label, "test_type"
                     )
                     await conn.execute("INVALID SQL")
-                except asyncpg.PostgresError:
-                    pass
+            except asyncpg.PostgresError:
+                pass
 
-            # Verify rollback in a new transaction
-            async with conn.transaction():
-                count = await conn.fetchval(
-                    "SELECT COUNT(*) FROM nodes WHERE label = $1",
-                    "test"
-                )
-                assert count == 0, "Transaction rollback failed"
-                logger.info("Transaction rollback verified")
+            # Verify rollback
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM nodes WHERE label = $1",
+                test_label
+            )
+            assert count == 0, "Transaction rollback failed"
+            logger.info("Transaction rollback verified")
 
         logger.info("Error handling test passed")
     except Exception as e:
@@ -80,11 +77,12 @@ async def test_concurrent_operations(db_pool):
     try:
         async def create_test_node(i: int):
             async with db_pool.acquire() as conn:
+                test_label = f"test_node_{i}_{id(conn)}"
                 return await conn.fetchval("""
                     INSERT INTO nodes (label, type)
                     VALUES ($1, $2)
                     RETURNING id
-                """, f"test_node_{i}", "test")
+                """, test_label, "test")
 
         # Run concurrent operations
         tasks = [create_test_node(i) for i in range(3)]
@@ -103,20 +101,24 @@ async def test_concurrent_operations(db_pool):
 async def test_node_operations(db_pool):
     """Test node operations."""
     try:
+        # Use timestamp and connection id to ensure uniqueness
+        test_id = f"{id(db_pool)}_{asyncio.get_event_loop().time()}"
         test_node = {
-            "label": "Test Node",
+            "label": f"Test Node {test_id}",
             "type": "concept",
             "metadata": {"test": True}
         }
 
         # Create node
         created = await create_node(test_node)
+        assert created is not None, "Node creation failed"
         assert created["label"] == test_node["label"]
         assert created["type"] == test_node["type"]
         assert created["metadata"]["test"] is True
 
         # Retrieve node
         retrieved = await get_node(created["id"])
+        assert retrieved is not None, "Node retrieval failed"
         assert retrieved["label"] == created["label"]
 
         logger.info("Node operations test passed")
@@ -128,30 +130,42 @@ async def test_node_operations(db_pool):
 async def test_edge_operations(db_pool):
     """Test edge operations."""
     try:
-        # Create test nodes
-        node1 = await create_node({"label": "Source", "type": "test"})
-        node2 = await create_node({"label": "Target", "type": "test"})
+        # Create test nodes with unique labels
+        test_id = f"{id(db_pool)}_{asyncio.get_event_loop().time()}"
+        node1 = await create_node({
+            "label": f"Source_{test_id}", 
+            "type": "test"
+        })
+        node2 = await create_node({
+            "label": f"Target_{test_id}", 
+            "type": "test"
+        })
+
+        assert node1 is not None, "Source node creation failed"
+        assert node2 is not None, "Target node creation failed"
 
         test_edge = {
             "sourceId": node1["id"],
             "targetId": node2["id"],
-            "label": "test_relation",
+            "label": f"test_relation_{test_id}",
             "weight": 1.0,
             "metadata": {"test": True}
         }
 
         # Create edge
         created = await create_edge(test_edge)
+        assert created is not None, "Edge creation failed"
         assert created["sourceId"] == node1["id"]
         assert created["targetId"] == node2["id"]
 
         # Retrieve edge
         retrieved = await get_edge(created["id"])
+        assert retrieved is not None, "Edge retrieval failed"
         assert retrieved["label"] == test_edge["label"]
 
         # Test duplicate prevention
         duplicate = await create_edge(test_edge)
-        assert duplicate is None
+        assert duplicate is None, "Duplicate edge should not be created"
 
         logger.info("Edge operations test passed")
     except Exception as e:
@@ -164,7 +178,7 @@ async def test_invalid_operations(db_pool):
     try:
         # Test invalid node retrieval
         invalid_node = await get_node(-1)
-        assert invalid_node is None
+        assert invalid_node is None, "Invalid node should return None"
 
         # Test invalid edge creation
         invalid_edge = {
@@ -173,7 +187,7 @@ async def test_invalid_operations(db_pool):
             "label": "invalid"
         }
         invalid_result = await create_edge(invalid_edge)
-        assert invalid_result is None
+        assert invalid_result is None, "Invalid edge creation should return None"
 
         logger.info("Invalid operations test passed")
     except Exception as e:
