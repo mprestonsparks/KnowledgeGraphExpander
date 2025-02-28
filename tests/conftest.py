@@ -1,43 +1,29 @@
-"""Test configuration and fixtures."""
+"""Pytest configuration and fixtures."""
 import pytest
 import asyncio
-from typing import AsyncGenerator, Optional
 import logging
+from typing import AsyncGenerator
 from contextlib import asynccontextmanager
-import sys
 from fastapi.testclient import TestClient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_or_create_eventloop():
-    """Helper function to get or create an event loop."""
-    try:
-        return asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        return loop
-
 @pytest.fixture(scope="session")
 def event_loop():
-    """Create an event loop for the test session."""
-    loop = get_or_create_eventloop()
+    """Create an instance of the default event loop for the test session."""
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
+    asyncio.set_event_loop(loop)
     yield loop
-    # Clean up the loop
+
     try:
         if not loop.is_closed():
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                if not task.done():
-                    task.cancel()
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             loop.run_until_complete(loop.shutdown_asyncgens())
             loop.close()
     except Exception as e:
-        logger.error(f"Error cleaning up event loop: {e}")
+        logger.error(f"Error closing event loop: {e}")
 
 @pytest.fixture(scope="function")
 async def db_pool(event_loop):
@@ -54,12 +40,13 @@ async def db_pool(event_loop):
     finally:
         if pool is not None:
             try:
-                # Ensure cleanup happens in the same loop
                 current_loop = asyncio.get_event_loop()
                 if current_loop.is_running():
+                    # If we're in a running loop, use run_coroutine_threadsafe
                     future = asyncio.run_coroutine_threadsafe(cleanup_pool(), event_loop)
-                    future.result()
+                    future.result(timeout=5)  # Add timeout to prevent hanging
                 else:
+                    # If loop is not running, we can await directly
                     await cleanup_pool()
             except Exception as e:
                 logger.error(f"Error during pool cleanup: {e}")
@@ -70,7 +57,6 @@ async def test_app(event_loop, db_pool):
     from server.app import app
     from server.database import init_db
 
-    # Ensure we're using the session event loop
     asyncio.set_event_loop(event_loop)
 
     try:
@@ -87,25 +73,23 @@ async def test_app(event_loop, db_pool):
 @pytest.fixture(scope="function")
 def test_client(event_loop, test_app):
     """Create a test client."""
-    try:
-        # Set the event loop for the thread
-        asyncio.set_event_loop(event_loop)
-        with TestClient(test_app) as client:
-            yield client
-    except Exception as e:
-        logger.error(f"Error in test client: {e}")
-        raise
-    finally:
-        # Clean up any pending tasks
+    # Set the event loop for the thread
+    asyncio.set_event_loop(event_loop)
+
+    with TestClient(test_app) as client:
         try:
-            tasks = [t for t in asyncio.all_tasks(event_loop) 
-                    if t is not asyncio.current_task() and not t.done()]
-            if tasks:
-                for task in tasks:
-                    task.cancel()
-                event_loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-        except Exception as e:
-            logger.error(f"Error cleaning up test client tasks: {e}")
+            yield client
+        finally:
+            # Clean up any pending tasks
+            try:
+                tasks = [t for t in asyncio.all_tasks(event_loop) 
+                        if t is not asyncio.current_task() and not t.done()]
+                if tasks:
+                    for task in tasks:
+                        task.cancel()
+                    event_loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+            except Exception as e:
+                logger.error(f"Error cleaning up test client tasks: {e}")
 
 @pytest.fixture(autouse=True)
 async def verify_loop_state(event_loop):
@@ -121,16 +105,28 @@ async def verify_loop_state(event_loop):
 
     yield
 
-    # Post-test verification and cleanup
+    # Post-test cleanup
     try:
-        current_loop = asyncio.get_event_loop()
-        if not current_loop.is_closed():
-            # Cancel all non-current tasks
-            tasks = [t for t in asyncio.all_tasks(current_loop) 
+        if not event_loop.is_closed():
+            # Clean up any remaining tasks
+            tasks = [t for t in asyncio.all_tasks(event_loop) 
                     if t is not asyncio.current_task() and not t.done()]
             if tasks:
                 for task in tasks:
                     task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
+                # Use run_until_complete to ensure tasks are cleaned up
+                event_loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
     except Exception as e:
-        logger.error(f"Post-test loop verification failed: {e}")
+        logger.error(f"Post-test cleanup failed: {e}")
+
+async def cleanup_pending_tasks(loop):
+    """Helper function to clean up pending tasks."""
+    try:
+        tasks = [t for t in asyncio.all_tasks(loop) 
+                if t is not asyncio.current_task() and not t.done()]
+        if tasks:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception as e:
+        logger.error(f"Error cleaning up pending tasks: {e}")
