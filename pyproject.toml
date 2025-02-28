@@ -21,5 +21,8 @@ dependencies = [
     "websockets>=15.0",
 ]
 
-[tool.uv]
-exclude = []
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

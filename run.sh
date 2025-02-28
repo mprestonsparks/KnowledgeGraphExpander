@@ -1,19 +1,25 @@
 #!/bin/bash
-# Start the FastAPI backend
+# Start the FastAPI backend and frontend development server
 HOST="0.0.0.0"
 PORT="3000"
 
 # Export environment variables for the frontend
 export VITE_API_URL="http://localhost:${PORT}"
 
-# Start the FastAPI backend
+echo "Installing frontend dependencies..."
+cd frontend 
+npm install
+npm run build
+cd ..
+
+echo "Starting FastAPI backend..."
 python -m uvicorn main:app --host $HOST --port $PORT --reload &
 pid_backend=$!
 
 # Wait for backend to start
 sleep 2
 
-# Start the frontend dev server
+echo "Starting frontend development server..."
 cd frontend && npm run dev -- --host $HOST &
 pid_frontend=$!
 
