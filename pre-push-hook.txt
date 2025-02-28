@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# Enhanced Pre-Push Hook with AI Test Runner Integration
+# This hook runs the test suite, displays consolidated test reports,
+# and performs AI-powered strategy analysis before allowing the push.
+
+# ANSI color codes for styling
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'   # No Color
+BOLD='\033[1m'
+
+# Directories and files
+REPORTS_DIR="tests/reports"
+STRATEGY_LOGS_DIR="tests/strategy_logs"
+AI_TEST_RUNNER="tests/ai_test_runner.py"
+TEST_REPORT="${REPORTS_DIR}/test-report.md"
+STRATEGY_ANALYSIS="${STRATEGY_LOGS_DIR}/latest_summary.md"
+
+echo -e "${BOLD}${BLUE}=== Running AI Test Suite ===${NC}"
+
+# Run AI test runner
+if [ -f "$AI_TEST_RUNNER" ]; then
+    python "$AI_TEST_RUNNER"
+    TEST_EXIT_CODE=$?
+    
+    if [ $TEST_EXIT_CODE -ne 0 ]; then
+        echo -e "${RED}AI Test Runner failed. Please fix the issues before pushing.${NC}"
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}Warning: AI Test Runner not found at ${AI_TEST_RUNNER}${NC}"
+fi
+
+# Display the consolidated test report
+echo -e "\n${BOLD}${BLUE}=== Test Report Summary ===${NC}"
+if [ -f "$TEST_REPORT" ]; then
+    cat "$TEST_REPORT"
+else
+    echo -e "${YELLOW}No test report found at ${TEST_REPORT}${NC}"
+fi
+
+# Display the latest strategy analysis
+echo -e "\n${BOLD}${BLUE}=== Test Strategy Analysis ===${NC}"
+if [ -f "$STRATEGY_ANALYSIS" ]; then
+    cat "$STRATEGY_ANALYSIS"
+else
+    echo -e "${YELLOW}No strategy analysis found at ${STRATEGY_ANALYSIS}${NC}"
+fi
+
+# Show overall status
+echo -e "\n${BOLD}${BLUE}=== Push Validation ===${NC}"
+if [ ! -f "$TEST_REPORT" ] || [ ! -f "$STRATEGY_ANALYSIS" ]; then
+    echo -e "${YELLOW}Warning: Some test artifacts are missing. It's recommended to run a full test suite.${NC}"
+fi
+
+# Ask for user confirmation to proceed
+echo -e "\n${BOLD}Have you reviewed the test results and strategy analysis? (y/n)${NC}"
+read -r RESPONSE
+
+if [[ "$RESPONSE" =~ ^[Yy]$ ]]; then
+    echo -e "${GREEN}Push approved. Proceeding...${NC}"
+    exit 0
+else
+    echo -e "${RED}Push aborted. Please review the test report and fix any issues before pushing.${NC}"
+    exit 1
+fi
