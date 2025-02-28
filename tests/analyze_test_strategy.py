@@ -115,19 +115,30 @@ class TestAnalyzer:
         return failures
 
     def _parse_failures(self, test_output: str) -> Dict[str, List[dict]]:
-        """Parse test failures from output"""
+        """Parse failures by module"""
         failures = defaultdict(list)
 
-        # Split output into test module sections
-        sections = re.split(r"Running test module: (\w+)", test_output)[1:]
-        for i in range(0, len(sections), 2):
-            if i + 1 >= len(sections):
-                break
+        # Split output into module sections
+        sections = []
+        current_section = []
+        current_module = None
 
-            module = sections[i]
-            section_content = sections[i + 1]
+        # Extract test sections even from partial output
+        for line in test_output.split('\n'):
+            if "Running test module:" in line:
+                if current_module and current_section:
+                    sections.append((current_module, '\n'.join(current_section)))
+                current_module = line.split("Running test module:")[1].strip()
+                current_section = []
+            elif current_module and line.strip():
+                current_section.append(line)
 
-            # Parse failures for this module
+        # Add the last section
+        if current_module and current_section:
+            sections.append((current_module, '\n'.join(current_section)))
+
+        # Parse each section
+        for module, section_content in sections:
             module_failures = self._parse_test_section(section_content)
             if module_failures:
                 failures[module].extend(module_failures)

@@ -6,7 +6,8 @@ mkdir -p tests/strategy_logs
 
 # Run tests and capture full output
 echo "Running test suite..."
-python -m pytest tests/ -v 2>&1 | tee tests/reports/test-output.txt
+timeout 120 python -m pytest tests/ -v --tb=short 2>&1 | tee tests/reports/test-output.txt
+TEST_EXIT_CODE=${PIPESTATUS[0]}
 
 # Check if test output was generated
 if [ ! -s tests/reports/test-output.txt ]; then
@@ -42,3 +43,6 @@ chmod +x tests/analyze_strategy.sh
 chmod +x .git/hooks/pre-push
 
 echo "Test report generated. View full report in tests/reports/test-report.md"
+
+# Exit with the test suite's exit code
+exit $TEST_EXIT_CODE
