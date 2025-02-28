@@ -2,9 +2,17 @@
 
 # Create reports directory if it doesn't exist
 mkdir -p tests/reports
+mkdir -p tests/strategy_logs
 
 # Run tests and capture full output
+echo "Running test suite..."
 python -m pytest tests/ -v 2>&1 | tee tests/reports/test-output.txt
+
+# Check if test output was generated
+if [ ! -s tests/reports/test-output.txt ]; then
+    echo "Error: No test output generated"
+    exit 1
+fi
 
 # Generate summary markdown
 echo "# Test Execution Summary" > tests/reports/test-summary.md
@@ -18,28 +26,19 @@ echo "\`\`\`" >> tests/reports/test-summary.md
 grep -B 1 -A 3 "FAIL" tests/reports/test-output.txt >> tests/reports/test-summary.md || true
 echo "\`\`\`" >> tests/reports/test-summary.md
 
+# Run strategy analysis
+echo "Analyzing test results..."
+bash tests/analyze_strategy.sh
+
 # Update the main test report with categorized issues
-cat > tests/reports/test-report.md << 'EOL'
-# Test Report Summary
+echo "# Test Report Summary" > tests/reports/test-report.md
+echo -e "\nTest Results:" >> tests/reports/test-report.md
+cat tests/reports/test-summary.md >> tests/reports/test-report.md
 
-## Core System Tests
-- Database Connection Tests
-- Graph Structure Tests
-- API Integration Tests
+echo -e "\nStrategy Analysis:" >> tests/reports/test-report.md
+cat tests/strategy_logs/latest_summary.md >> tests/reports/test-report.md
 
-## Graph Analysis Tests
-- Node/Edge Operations
-- Clustering Analysis
-- Semantic Processing
+chmod +x tests/analyze_strategy.sh
+chmod +x .git/hooks/pre-push
 
-## Test Execution Metrics
-$(grep "Test Files" tests/reports/test-output.txt)
-
-## Critical Issues
-$(grep "FAIL" tests/reports/test-output.txt)
-
-## Next Steps
-1. Address any database connection issues
-2. Fix semantic analysis failures
-3. Resolve API integration errors
-EOL
+echo "Test report generated. View full report in tests/reports/test-report.md"
