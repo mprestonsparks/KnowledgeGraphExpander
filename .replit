@@ -78,7 +78,7 @@ author = 39844550
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pytest tests/test_api.py -v`"
+args = "pytest tests/test_api.py -v"
 
 [[workflows.workflow]]
 name = "integration tests"
@@ -87,7 +87,7 @@ author = 39844550
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "`pytest tests/test_integration.py -v`"
+args = "pytest tests/test_integration.py -v"
 
 [[workflows.workflow]]
 name = "semantic API tests"
@@ -96,7 +96,7 @@ author = 39844550
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "`pytest tests/test_semantic_api.py -v`"
+args = "pytest tests/test_semantic_api.py -v"
 
 [[workflows.workflow]]
 name = "test suite runner"
