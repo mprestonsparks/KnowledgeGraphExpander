@@ -13,12 +13,14 @@ dependencies = [
     "numpy>=2.2.3",
     "openai>=1.64.0",
     "pydantic>=2.10.6",
+    "pytest-cov>=6.0.0",
     "pytest>=8.3.4",
     "python-multipart>=0.0.20",
     "scikit-learn>=1.6.1",
     "scipy>=1.15.2",
     "uvicorn[standard]>=0.34.0",
     "websockets>=15.0",
+    "pytest-asyncio>=0.25.3",
 ]
 
 [project.optional-dependencies]
