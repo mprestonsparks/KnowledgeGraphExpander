@@ -7,7 +7,7 @@ PORT="3000"
 export VITE_API_URL="http://localhost:${PORT}"
 
 # Start the FastAPI backend
-python main.py &
+python -m uvicorn main:app --host $HOST --port $PORT --reload &
 pid_backend=$!
 
 # Wait for backend to start
