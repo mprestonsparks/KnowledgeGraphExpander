@@ -174,5 +174,112 @@ class GraphManager:
         """Set callback for graph updates"""
         self.on_update = callback
 
+    async def expand(self, prompt: str, max_iterations: int = 10) -> dict:
+        """Expand the graph based on a prompt"""
+        try:
+            logger.info(f"Starting graph expansion with prompt: {prompt}")
+
+            # Analyze content and get expansion suggestions
+            expansion_data = await analyze_content({
+                "text": prompt,
+                "images": []
+            })
+
+            # Add new nodes and edges
+            for node_data in expansion_data.get("nodes", []):
+                node = await create_node(node_data)
+                if node and not self.graph.has_node(str(node["id"])):
+                    self.graph.add_node(str(node["id"]), **node)
+
+            for edge_data in expansion_data.get("edges", []):
+                edge = await create_edge(edge_data)
+                if edge:
+                    source_id = str(edge["sourceId"])
+                    target_id = str(edge["targetId"])
+                    if not self.graph.has_edge(source_id, target_id):
+                        self.graph.add_edge(source_id, target_id, **edge)
+
+            return await self.get_graph_data()
+        except Exception as e:
+            logger.error(f"Error during graph expansion: {str(e)}", exc_info=True)
+            raise
+
+    async def create_node(self, node_data: dict) -> dict:
+        """Create a new node"""
+        try:
+            logger.info(f"Creating new node with data: {node_data}")
+            node = await create_node(node_data)
+            if node and not self.graph.has_node(str(node["id"])):
+                self.graph.add_node(str(node["id"]), **node)
+            return node
+        except Exception as e:
+            logger.error(f"Error creating node: {str(e)}", exc_info=True)
+            raise
+
+    async def create_edge(self, edge_data: dict) -> dict:
+        """Create a new edge"""
+        try:
+            logger.info(f"Creating new edge with data: {edge_data}")
+            edge = await create_edge(edge_data)
+            if edge:
+                source_id = str(edge["sourceId"])
+                target_id = str(edge["targetId"])
+                if not self.graph.has_edge(source_id, target_id):
+                    self.graph.add_edge(source_id, target_id, **edge)
+            return edge
+        except Exception as e:
+            logger.error(f"Error creating edge: {str(e)}", exc_info=True)
+            raise
+
+    async def reconnect_disconnected_nodes(self) -> dict:
+        """Reconnect disconnected nodes to the main graph"""
+        try:
+            logger.info("Starting reconnection of disconnected nodes")
+
+            # Find disconnected nodes
+            disconnected_nodes = []
+            for node in self.graph.nodes():
+                if self.graph.degree(node) == 0:
+                    disconnected_nodes.append(node)
+
+            if not disconnected_nodes:
+                logger.info("No disconnected nodes found")
+                return await self.get_graph_data()
+
+            logger.info(f"Found {len(disconnected_nodes)} disconnected nodes")
+
+            # Get the largest connected component
+            components = list(nx.connected_components(self.graph))
+            if not components:
+                return await self.get_graph_data()
+
+            main_component = max(components, key=len)
+            main_node = next(iter(main_component))
+
+            # Connect disconnected nodes to the main component
+            for node_id in disconnected_nodes:
+                edge_data = {
+                    "sourceId": int(node_id),
+                    "targetId": int(main_node),
+                    "label": "connected_to",
+                    "weight": 1
+                }
+                await self.create_edge(edge_data)
+
+            return await self.get_graph_data()
+        except Exception as e:
+            logger.error(f"Error reconnecting nodes: {str(e)}", exc_info=True)
+            raise
+
+    async def recalculate_clusters(self) -> dict:
+        """Recalculate graph clusters"""
+        try:
+            logger.info("Recalculating graph clusters")
+            self.semantic_clustering = SemanticClusteringService(self.graph)
+            return await self.get_graph_data()
+        except Exception as e:
+            logger.error(f"Error recalculating clusters: {str(e)}", exc_info=True)
+            raise
+
 # Create a singleton instance
 graph_manager = GraphManager()
