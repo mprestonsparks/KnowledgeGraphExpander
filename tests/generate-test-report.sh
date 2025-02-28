@@ -21,6 +21,16 @@ bash tests/analyze_strategy.sh
 
 # Update the main test report with categorized issues
 echo "# Test Report Summary" > tests/reports/test-report.md
+echo "Generated at: $(date)" >> tests/reports/test-report.md
+
+# Add quick summary section
+echo -e "\n## Quick Summary" >> tests/reports/test-report.md
+TOTAL_TESTS=$(grep -c "::test_" tests/reports/test-output.txt || echo "0")
+FAILED_TESTS=$(grep -c "FAILED" tests/reports/test-output.txt || echo "0")
+PASSED_TESTS=$((TOTAL_TESTS - FAILED_TESTS))
+echo "* Total Tests: $TOTAL_TESTS" >> tests/reports/test-report.md
+echo "* Passed: $PASSED_TESTS" >> tests/reports/test-report.md
+echo "* Failed: $FAILED_TESTS" >> tests/reports/test-report.md
 
 # Add test execution summary
 echo -e "\n## Test Results" >> tests/reports/test-report.md
@@ -31,11 +41,25 @@ echo '```' >> tests/reports/test-report.md
 # Add failed tests section if there are failures
 echo -e "\n## Failed Tests" >> tests/reports/test-report.md
 if grep -q "FAILED" tests/reports/test-output.txt; then
+    # Group failures by module
+    echo "### By Module:" >> tests/reports/test-report.md
+    for module in api database graph integration; do
+        if grep -q "test_${module}.py.*FAILED" tests/reports/test-output.txt; then
+            echo -e "\n#### ${module^} Module" >> tests/reports/test-report.md
+            echo '```' >> tests/reports/test-report.md
+            grep -B 1 -A 3 "test_${module}.py.*FAILED" tests/reports/test-output.txt >> tests/reports/test-report.md || true
+            echo '```' >> tests/reports/test-report.md
+        fi
+    done
+
+    # Add error summary section
+    echo -e "\n### Error Summary:" >> tests/reports/test-report.md
     echo '```' >> tests/reports/test-report.md
-    grep -B 1 -A 3 "FAILED" tests/reports/test-output.txt >> tests/reports/test-report.md || true
+    grep "FAILED.*- .*Error:" tests/reports/test-output.txt | sort | uniq -c | \
+        sed 's/^[ ]*//' >> tests/reports/test-report.md || true
     echo '```' >> tests/reports/test-report.md
 else
-    echo "No test failures found." >> tests/reports/test-report.md
+    echo "✅ No test failures found." >> tests/reports/test-report.md
 fi
 
 # Add the latest strategy analysis

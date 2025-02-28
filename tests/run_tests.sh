@@ -42,18 +42,6 @@ run_test_module() {
     echo "Test completed at: $(date)" >> "$log_file"
     echo "Test exit status: ${test_status}" >> "$log_file"
 
-    # Generate summary
-    echo "Summary:" >> "$log_file"
-    if [ $test_status -eq 0 ]; then
-        echo "✅ All tests passed" >> "$log_file"
-    elif [ $test_status -eq 124 ]; then
-        echo "⚠️ Tests timed out" >> "$log_file"
-        grep -B 1 "FAILED" "$log_file" | grep -v "^--$" >> "$log_file" || true
-    else
-        echo "❌ Some tests failed" >> "$log_file"
-        grep -B 1 "FAILED" "$log_file" | grep -v "^--$" >> "$log_file" || true
-    fi
-
     # Generate analysis report
     bash tests/analyze_strategy.sh >> "$log_file"
 
