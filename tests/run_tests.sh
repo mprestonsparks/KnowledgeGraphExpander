@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Create reports directory if it doesn't exist
+mkdir -p tests/reports
+
 # Test orchestration script
 ROOT_DIR="$(pwd)"
 LOG_DIR="${ROOT_DIR}/tests/logs"
@@ -12,11 +15,11 @@ mkdir -p "$LOG_DIR"
 run_test_module() {
     local module_name=$1
     local log_file="${LOG_DIR}/${module_name}_${DATE_TAG}.log"
-    
+
     echo "Running test module: ${module_name}"
     echo "Test started at: $(date)" > "$log_file"
     echo "----------------------------------------" >> "$log_file"
-    
+
     case $module_name in
         "database")
             python -m pytest tests/test_database.py -v >> "$log_file" 2>&1
@@ -35,12 +38,12 @@ run_test_module() {
             return 1
             ;;
     esac
-    
+
     local test_status=$?
     echo "----------------------------------------" >> "$log_file"
     echo "Test completed at: $(date)" >> "$log_file"
     echo "Test exit status: ${test_status}" >> "$log_file"
-    
+
     # Generate summary
     echo "Summary:" >> "$log_file"
     if [ $test_status -eq 0 ]; then
@@ -49,7 +52,7 @@ run_test_module() {
         echo "❌ Some tests failed" >> "$log_file"
         grep -B 1 "FAILED" "$log_file" | grep -v "^--$" >> "$log_file"
     fi
-    
+
     return $test_status
 }
 
@@ -57,7 +60,7 @@ run_test_module() {
 read_previous_summary() {
     local module_name=$1
     local latest_log=$(ls -t "${LOG_DIR}/${module_name}_"*.log 2>/dev/null | head -n 2 | tail -n 1)
-    
+
     if [ -f "$latest_log" ]; then
         echo "Previous test summary for ${module_name}:"
         sed -n '/Summary:/,$p' "$latest_log"
@@ -70,12 +73,12 @@ read_previous_summary() {
 main() {
     local test_modules=("database" "graph" "api" "integration")
     local failed_modules=()
-    
+
     for module in "${test_modules[@]}"; do
         # Read previous summary before running new tests
         read_previous_summary "$module"
         echo "----------------------------------------"
-        
+
         if run_test_module "$module"; then
             echo "✅ ${module} tests completed successfully"
         else
@@ -84,7 +87,7 @@ main() {
         fi
         echo "----------------------------------------"
     done
-    
+
     # Final summary
     echo "Test Run Complete at $(date)"
     if [ ${#failed_modules[@]} -eq 0 ]; then
