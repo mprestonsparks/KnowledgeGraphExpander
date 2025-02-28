@@ -15,7 +15,7 @@ async def get_graph_data():
     try:
         logger.info("Received request for graph data")
         data = await graph_manager.get_graph_data()
-        logger.info(f"Retrieved graph data: {len(data.get('nodes', [])} nodes, {len(data.get('edges', [])} edges")
+        logger.info(f"Retrieved graph data: {len(data.get('nodes', []))} nodes, {len(data.get('edges', []))} edges")
         return data
     except Exception as e:
         logger.error(f"Error getting graph data: {str(e)}", exc_info=True)
@@ -27,7 +27,7 @@ async def expand_graph(request: ExpandGraphRequest):
     try:
         logger.info(f"Received graph expansion request with prompt: {request.prompt}")
         data = await graph_manager.expand(request.prompt, request.maxIterations)
-        logger.info(f"Graph expanded successfully: {len(data.get('nodes', [])} nodes, {len(data.get('edges', [])} edges")
+        logger.info(f"Graph expanded successfully: {len(data.get('nodes', []))} nodes, {len(data.get('edges', []))} edges")
         return data
     except Exception as e:
         logger.error(f"Error expanding graph: {str(e)}", exc_info=True)
