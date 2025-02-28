@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 # Anthropic client
 anthropic_client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-
 def is_valid_base64(str_val: str) -> bool:
     """Check if a string is valid base64"""
     if not str_val:
@@ -33,8 +32,7 @@ def is_valid_base64(str_val: str) -> bool:
     except:
         return False
 
-
-async def analyze_content(content, existing_nodes=None):
+async def analyze_content(content: Dict[str, Any], existing_nodes: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Analyze content and extract knowledge graph elements"""
     if existing_nodes is None:
         existing_nodes = []
@@ -44,7 +42,7 @@ async def analyze_content(content, existing_nodes=None):
         if content.get("images"):
             for image in content["images"]:
                 if not is_valid_base64(image.get("data", "")):
-                    raise Exception('Invalid image data format')
+                    raise ValueError('Invalid image data format')
 
         # Prepare system prompt
         system_prompt = """You are a semantic analysis expert. Analyze the following content and extract knowledge graph elements.
@@ -74,21 +72,24 @@ Rules:
 6. Response must be pure JSON - no explanation text before or after"""
 
         # Prepare user message
-        user_message = f"""
-Existing nodes:
+        user_message = {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"""Existing nodes:
 {json.dumps(existing_nodes, indent=2)}
 
 Content to analyze:
-{content.get("text", "")}
-"""
-
-        # Prepare message content list
-        message_content = [{"type": "text", "text": user_message}]
+{content.get("text", "")}"""
+                }
+            ]
+        }
 
         # Add images if present
         if content.get("images"):
             for image in content["images"]:
-                message_content.append({
+                user_message["content"].append({
                     "type": "image",
                     "source": {
                         "type": "base64",
@@ -102,17 +103,15 @@ Content to analyze:
             model="claude-3-5-sonnet-20241022",
             max_tokens=1024,
             system=system_prompt,
-            messages=[{
-                "role": "user",
-                "content": message_content
-            }])
+            messages=[user_message]
+        )
 
         # Parse the response
         response_text = response.content[0].text
         parsed_response = json.loads(response_text)
 
         # Add IDs to new nodes starting after the last existing node ID
-        last_node_id = max([0] + [n["id"] for n in existing_nodes])
+        last_node_id = max([0] + [n.get("id", 0) for n in existing_nodes])
         nodes_with_ids = []
 
         for i, node in enumerate(parsed_response.get("nodes", [])):
@@ -120,18 +119,26 @@ Content to analyze:
             node_with_id["id"] = last_node_id + i + 1
             nodes_with_ids.append(node_with_id)
 
-        return {
+        result = {
             "nodes": nodes_with_ids,
             "edges": parsed_response.get("edges", []),
             "reasoning": parsed_response.get("reasoning", "")
         }
+
+        logger.info(f"Analysis complete with {len(result['nodes'])} nodes and {len(result['edges'])} edges")
+        return result
+
     except Exception as e:
-        logger.error(f'Semantic analysis failed: {str(e)}')
+        logger.error(f'Semantic analysis failed: {str(e)}', exc_info=True)
         raise
 
-
-async def validate_relationships(source_node, target_nodes):
+async def validate_relationships(source_node: Dict[str, Any], target_nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Validate relationships between nodes"""
+    if not source_node:
+        raise ValueError("Invalid source node")
+    if not isinstance(target_nodes, list):
+        raise ValueError("Invalid target nodes")
+
     try:
         # Prepare system prompt
         system_prompt = """You are a semantic relationship validator. Analyze the connections between the source node and target nodes.
@@ -167,7 +174,8 @@ Analyze the semantic coherence and validity of relationships between the source 
             messages=[{
                 "role": "user",
                 "content": user_message
-            }])
+            }]
+        )
 
         # Parse the response
         response_text = response.content[0].text
@@ -178,5 +186,5 @@ Analyze the semantic coherence and validity of relationships between the source 
             "reasoning": parsed_response.get("reasoning", "")
         }
     except Exception as e:
-        logger.error(f'Failed to validate relationships: {str(e)}')
+        logger.error(f'Failed to validate relationships: {str(e)}', exc_info=True)
         raise
