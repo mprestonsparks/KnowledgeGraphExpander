@@ -1,5 +1,5 @@
 {
-  "timestamp": "20250228_032958",
+  "timestamp": "20250228_032434",
   "failures": {
     "graph": [
       {
@@ -29,17 +29,4 @@
     ]
   },
   "dependencies": {
-    "graph": [
-      "semantic"
-    ]
-  },
-  "recommendations": [
-    "Review class interfaces in graph module - ensure methods are implemented correctly",
-    "Fix type mismatches in graph module - verify function signatures and parameters",
-    "High failure rate in graph module (4 failures) - consider focused debugging session",
-    "Address graph dependencies on: semantic"
-  ],
-  "priority_order": [
-    "graph"
-  ]
-}
+    "graph": 
