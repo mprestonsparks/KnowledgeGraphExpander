@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 
 class Node(BaseModel):
     id: int
@@ -7,49 +7,13 @@ class Node(BaseModel):
     type: str
     metadata: Optional[Dict[str, Any]] = {}
 
-class InsertNode(BaseModel):
-    id: Optional[int] = None
-    label: str
-    type: str = "concept"
-    metadata: Optional[Dict[str, Any]] = {}
-
 class Edge(BaseModel):
     id: Optional[int] = None
     sourceId: int
     targetId: int
     label: str = "related_to"
-    weight: int = 1
+    weight: float = 1.0
     metadata: Optional[Dict[str, Any]] = {}
-
-class InsertEdge(BaseModel):
-    id: Optional[int] = None
-    sourceId: int
-    targetId: int
-    label: str = "related_to"
-    weight: int = 1
-    metadata: Optional[Dict[str, Any]] = {}
-
-class HubNode(BaseModel):
-    id: int
-    degree: int
-    influence: float
-
-class BridgingNode(BaseModel):
-    id: int
-    communities: int
-    betweenness: float
-
-class ScaleFreeness(BaseModel):
-    powerLawExponent: float
-    fitQuality: float
-    hubNodes: List[HubNode]
-    bridgingNodes: List[BridgingNode]
-
-class GraphMetrics(BaseModel):
-    betweenness: Dict[int, float]
-    eigenvector: Dict[int, float]
-    degree: Dict[int, int]
-    scaleFreeness: ScaleFreeness
 
 class ClusterMetadata(BaseModel):
     centroidNode: Optional[str] = None
@@ -61,6 +25,18 @@ class ClusterResult(BaseModel):
     nodes: List[str]
     metadata: ClusterMetadata
 
+class ScaleFreeness(BaseModel):
+    powerLawExponent: float
+    fitQuality: float
+    hubNodes: List[Dict[str, Any]]
+    bridgingNodes: List[Dict[str, Any]]
+
+class GraphMetrics(BaseModel):
+    betweenness: Dict[str, float]
+    eigenvector: Dict[str, float]
+    degree: Dict[str, int]
+    scaleFreeness: ScaleFreeness
+
 class GraphData(BaseModel):
     nodes: List[Node]
     edges: List[Edge]
@@ -68,8 +44,8 @@ class GraphData(BaseModel):
     clusters: Optional[List[ClusterResult]] = None
 
 class GraphExpansionResult(BaseModel):
-    nodes: List[InsertNode]
-    edges: List[InsertEdge]
+    nodes: List[Node]
+    edges: List[Edge]
     reasoning: Optional[str] = None
     nextQuestion: Optional[str] = None
 

@@ -21,7 +21,7 @@ def test_health_check(client):
         assert response.json() == {"status": "healthy"}
         logger.info("Health check test passed")
     except Exception as e:
-        logger.error(f"Health check test failed: {str(e)}")
+        logger.error(f"Health check test failed: {str(e)}", exc_info=True)
         raise
 
 def test_root_endpoint(client):
@@ -35,7 +35,7 @@ def test_root_endpoint(client):
         assert "endpoints" in data
         logger.info("Root endpoint test passed")
     except Exception as e:
-        logger.error(f"Root endpoint test failed: {str(e)}")
+        logger.error(f"Root endpoint test failed: {str(e)}", exc_info=True)
         raise
 
 def test_get_graph_data(client):
@@ -49,7 +49,7 @@ def test_get_graph_data(client):
         assert "metrics" in data
         logger.info("Graph data retrieval test passed")
     except Exception as e:
-        logger.error(f"Graph data retrieval test failed: {str(e)}")
+        logger.error(f"Graph data retrieval test failed: {str(e)}", exc_info=True)
         raise
 
 def test_expand_graph(client):
@@ -64,9 +64,11 @@ def test_expand_graph(client):
         data = response.json()
         assert "nodes" in data
         assert "edges" in data
+        assert isinstance(data["nodes"], list)
+        assert isinstance(data["edges"], list)
         logger.info("Graph expansion test passed")
     except Exception as e:
-        logger.error(f"Graph expansion test failed: {str(e)}")
+        logger.error(f"Graph expansion test failed: {str(e)}", exc_info=True)
         raise
 
 def test_analyze_content(client):
@@ -76,27 +78,16 @@ def test_analyze_content(client):
             "text": "Test content for analysis",
             "images": []
         }
-        response = client.post("/api/graph/analyze-content", json=test_content)
+        response = client.post("/api/graph/analyze", json=test_content)
         assert response.status_code == 200
         data = response.json()
         assert "nodes" in data
         assert "edges" in data
+        assert isinstance(data["nodes"], list)
+        assert isinstance(data["edges"], list)
         logger.info("Content analysis endpoint test passed")
     except Exception as e:
-        logger.error(f"Content analysis endpoint test failed: {str(e)}")
-        raise
-
-def test_reconnect_nodes(client):
-    """Test the node reconnection endpoint."""
-    try:
-        response = client.post("/api/graph/reconnect")
-        assert response.status_code == 200
-        data = response.json()
-        assert "nodes" in data
-        assert "edges" in data
-        logger.info("Node reconnection endpoint test passed")
-    except Exception as e:
-        logger.error(f"Node reconnection endpoint test failed: {str(e)}")
+        logger.error(f"Content analysis endpoint test failed: {str(e)}", exc_info=True)
         raise
 
 def test_reapply_clustering(client):
@@ -108,9 +99,10 @@ def test_reapply_clustering(client):
         assert "nodes" in data
         assert "edges" in data
         assert "clusters" in data
+        assert isinstance(data["clusters"], list)
         logger.info("Clustering reapplication test passed")
     except Exception as e:
-        logger.error(f"Clustering reapplication test failed: {str(e)}")
+        logger.error(f"Clustering reapplication test failed: {str(e)}", exc_info=True)
         raise
 
 def test_error_handling(client):
@@ -120,12 +112,12 @@ def test_error_handling(client):
         invalid_data = {"invalid": "data"}
         response = client.post("/api/graph/expand", json=invalid_data)
         assert response.status_code == 422
-        
+
         # Test non-existent endpoint
         response = client.get("/api/nonexistent")
         assert response.status_code == 404
-        
+
         logger.info("Error handling test passed")
     except Exception as e:
-        logger.error(f"Error handling test failed: {str(e)}")
+        logger.error(f"Error handling test failed: {str(e)}", exc_info=True)
         raise

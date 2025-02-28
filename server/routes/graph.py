@@ -33,42 +33,17 @@ async def expand_graph(request: ExpandGraphRequest):
         logger.error(f"Error expanding graph: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to expand graph: {str(e)}")
 
-@router.post("/analyze", response_model=GraphMetrics)
-async def analyze_graph(graph_data: GraphData):
-    """Analyze a graph and return its metrics"""
-    try:
-        logger.info(f"Received graph analysis request: {len(graph_data.nodes)} nodes, {len(graph_data.edges)} edges")
-        G = create_networkx_graph(graph_data)
-        metrics = calculate_metrics(G)
-        logger.info("Graph analysis completed successfully")
-        return metrics
-    except Exception as e:
-        logger.error(f"Error during graph analysis: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/analyze-content", response_model=GraphData)
+@router.post("/analyze", response_model=GraphData)
 async def analyze_content(request: ContentAnalysisRequest):
     """Analyze content and update the graph"""
     try:
         logger.info("Received content analysis request")
         data = await graph_manager.analyze_content(request.dict())
-        logger.info("Content analysis completed successfully")
+        logger.info(f"Content analysis completed: {len(data.get('nodes', []))} nodes, {len(data.get('edges', []))} edges")
         return data
     except Exception as e:
         logger.error(f"Error analyzing content: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to analyze content: {str(e)}")
-
-@router.post("/reconnect", response_model=GraphData)
-async def reconnect_nodes():
-    """Reconnect disconnected nodes"""
-    try:
-        logger.info("Received request to reconnect nodes")
-        data = await graph_manager.reconnect_disconnected_nodes()
-        logger.info("Node reconnection completed successfully")
-        return data
-    except Exception as e:
-        logger.error(f"Error reconnecting nodes: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to reconnect nodes: {str(e)}")
 
 @router.post("/cluster", response_model=GraphData)
 async def reapply_clustering():
