@@ -1,0 +1,71 @@
+# Setting Up Test Suite Workflow in Replit
+
+1. Open Workflows Pane:
+   - Use Command + K and search for "Workflows"
+   - Or click the Workflows icon in the tools sidebar
+
+2. Create New Workflow:
+   - Click "+ New Workflow"
+   - Name: "Test Suite Runner"
+   - Description: "Manages test execution with proper database and event loop handling"
+
+3. Add Sequential Task - Database Setup:
+   - Task Type: "Execute Shell Command"
+   - Command: 
+     ```bash 
+     python -c "
+     import asyncio
+     from server.database import init_db, cleanup_pool
+     
+     async def setup_db():
+         await init_db()
+         await cleanup_pool()
+     
+     asyncio.run(setup_db())
+     "
+     ```
+
+4. Add Parallel Test Tasks:
+   Configure the following tasks to run in parallel after database setup:
+
+   Task 1 - API Tests:
+   - Task Type: "Execute Shell Command"
+   - Command: `pytest tests/test_api.py -v`
+
+   Task 2 - Integration Tests:
+   - Task Type: "Execute Shell Command"
+   - Command: `pytest tests/test_integration.py -v`
+
+   Task 3 - Semantic API Tests:
+   - Task Type: "Execute Shell Command"
+   - Command: `pytest tests/test_semantic_api.py -v`
+
+5. Configure Dependencies:
+   - In the workflow editor, set the database setup task as a prerequisite for all test tasks
+   - This ensures tests only start after database initialization is complete
+
+6. Configure Task Settings:
+   - For database setup: Select "Sequential" execution
+   - For test tasks: Select "Parallel" execution
+   - Set appropriate timeouts for each task
+
+7. Save Workflow:
+   - Click "Save" in the workflow editor
+   - The workflow will now appear in your workflows list
+
+8. Running the Workflow:
+   - Click the "Run" button next to the workflow name
+   - Monitor the Console pane for task outputs and any errors
+   - Each test suite will run in isolation with its own database connection
+
+Benefits:
+- Isolated database connections per test suite
+- Proper event loop management
+- Clear error reporting per task
+- Automated resource cleanup
+
+Notes:
+- If any test task fails, the workflow will mark itself as failed but continue running other tests
+- Database connections are managed per-task
+- Each test task gets its own event loop
+- Cleanup occurs automatically when tasks complete

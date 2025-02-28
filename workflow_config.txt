@@ -1,0 +1,78 @@
+# Replit Workflow Configuration Instructions
+
+## 1. Create New Workflow
+Name: "Test Suite Runner"
+Description: "Manages test execution with proper database and event loop handling"
+
+## 2. Configure Tasks
+
+### Task 1: Database Setup (Sequential)
+Command: Execute Shell Command
+Content:
+```bash
+python -c "
+import asyncio
+from server.database import init_db, cleanup_pool
+
+async def setup_db():
+    await init_db()
+    await cleanup_pool()
+
+asyncio.run(setup_db())
+"
+```
+
+### Task 2: Run API Tests (Parallel)
+Command: Execute Shell Command
+Content:
+```bash
+pytest tests/test_api.py -v
+```
+
+### Task 3: Run Integration Tests (Parallel)
+Command: Execute Shell Command
+Content:
+```bash
+pytest tests/test_integration.py -v
+```
+
+### Task 4: Run Semantic Tests (Parallel)
+Command: Execute Shell Command
+Content:
+```bash
+pytest tests/test_semantic_api.py -v
+```
+
+## 3. Configure Dependencies
+- Task 2, 3, and 4 should run in parallel after Task 1 completes
+- Each test task should have its own isolated database connection
+
+## 4. Error Handling
+- If Task 1 fails, stop workflow execution
+- If any test task fails, continue running other tests but mark workflow as failed
+
+## 5. Resource Management
+- Each parallel task gets its own event loop
+- Database connections are managed per-task
+- Cleanup occurs automatically when tasks complete
+
+## Implementation Steps:
+1. Open the Workflows pane using Command + K
+2. Click "+ New Workflow"
+3. Name it "Test Suite Runner"
+4. Add Task 1 as sequential setup task
+5. Add Tasks 2-4 as parallel test runners
+6. Set Task 1 as a prerequisite for Tasks 2-4
+7. Save and run the workflow
+
+## Benefits:
+- Isolates database operations for setup
+- Runs tests in parallel for faster execution
+- Manages event loops separately for each test group
+- Provides clear error reporting per task
+- Ensures proper resource cleanup
+
+## Usage:
+- Run workflow before committing changes
+- Monitor task outputs for failures
+- Check logs for any resource leaks

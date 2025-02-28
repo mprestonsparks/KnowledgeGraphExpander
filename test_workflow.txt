@@ -1,0 +1,63 @@
+# Test Suite Workflow Configuration
+
+## Name: Test Suite Runner
+Description: "Test suite execution with managed database connections and event loops"
+
+## Task Groups:
+
+### 1. Database Setup (Sequential)
+Command: Execute Shell Command
+```bash
+python -c "
+import asyncio
+from server.database import init_db
+
+async def setup():
+    await init_db()
+
+asyncio.run(setup())
+"
+```
+
+### 2. Test Execution (Parallel)
+- Task: API Tests
+  Command: Execute Shell Command
+  ```bash
+  pytest tests/test_api.py -v
+  ```
+
+- Task: Integration Tests
+  Command: Execute Shell Command
+  ```bash
+  pytest tests/test_integration.py -v
+  ```
+
+- Task: Semantic API Tests
+  Command: Execute Shell Command
+  ```bash
+  pytest tests/test_semantic_api.py -v
+  ```
+
+## Execution Mode: Mixed
+- Database setup runs sequentially first
+- Test suites run in parallel after setup completes
+- Each test suite gets its own process and event loop
+
+## Configuration Steps:
+1. Open Workflows pane (Command + K, search for "Workflows")
+2. Click "+ New Workflow"
+3. Name it "Test Suite Runner"
+4. Add the database setup task first
+5. Add the three test tasks with parallel execution enabled
+6. Save the workflow
+
+## Benefits:
+- Isolates test execution environments
+- Prevents event loop conflicts
+- Provides clear error reporting per test group
+- Ensures proper database initialization
+
+## Usage:
+1. Run workflow before committing changes
+2. Monitor task outputs in the Console pane
+3. Check logs for any database or event loop issues
