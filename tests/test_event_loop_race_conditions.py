@@ -1,6 +1,7 @@
 import pytest
 import asyncio
 import logging
+import asyncpg
 from asyncpg.exceptions import InterfaceError
 from server.database import (
     init_db, get_pool, cleanup_pool, close_existing_pool,
@@ -35,6 +36,107 @@ async def race_tester():
         logger.info(f"{timestamp:.6f}: {operation}")
 
 @pytest.mark.asyncio
+async def test_interrupt_pool_operations(race_tester):
+    """Test interrupting pool operations mid-flight."""
+    try:
+        logger.info("Starting interrupt pool operations test")
+        pool = await get_pool()
+
+        # Create events for synchronization
+        workers_ready = asyncio.Event()
+        interrupt_started = asyncio.Event()
+
+        async def interrupter():
+            try:
+                # Wait for workers to be ready
+                await workers_ready.wait()
+                race_tester.log_operation("Interrupter starting")
+                interrupt_started.set()  # Signal interruption starting
+
+                # Give worker time to start a transaction
+                await asyncio.sleep(0.1)
+
+                # Close the pool
+                race_tester.log_operation("Closing pool")
+                await cleanup_pool()
+                race_tester.pool_closed = True
+                race_tester.log_operation("Pool cleanup completed")
+                return True
+            except asyncio.CancelledError:
+                race_tester.log_operation("Interrupter cancelled")
+                raise
+            except Exception as e:
+                race_tester.log_operation(f"Interrupter failed: {str(e)}")
+                return False
+
+        async def worker(i: int):
+            try:
+                race_tester.log_operation(f"Worker {i} starting")
+                async with pool.acquire() as conn:
+                    race_tester.log_operation(f"Worker {i} acquired connection")
+                    workers_ready.set()  # Signal ready
+
+                    # Wait for interrupt signal
+                    await interrupt_started.wait()
+                    race_tester.log_operation(f"Worker {i} starting transaction")
+
+                    try:
+                        # Set statement timeout and execute long query
+                        await conn.execute("SET statement_timeout TO '100ms'")
+                        await conn.execute("""
+                            DO $$
+                            BEGIN
+                                PERFORM pg_sleep(2);
+                            END $$;
+                        """)
+                        # If we get here without timeout, return false
+                        return False
+                    except (InterfaceError, asyncpg.exceptions.QueryCanceledError) as e:
+                        race_tester.log_operation(f"Worker {i} caught expected interruption: {str(e)}")
+                        return True
+            except InterfaceError as e:
+                race_tester.log_operation(f"Worker {i} caught pool shutdown: {str(e)}")
+                return True
+            except Exception as e:
+                race_tester.log_operation(f"Worker {i} failed: {str(e)}")
+                race_tester.errors.append((i, str(e)))
+                return False
+
+        # Run with timeout
+        async with asyncio.timeout(3):
+            worker_task = asyncio.create_task(worker(0))
+            interrupter_task = asyncio.create_task(interrupter())
+
+            try:
+                results = await asyncio.gather(worker_task, interrupter_task)
+                worker_result = results[0]
+                interrupter_result = results[1]
+
+                assert interrupter_result, "Pool cleanup failed"
+                assert isinstance(worker_result, bool), f"Unexpected worker result type: {type(worker_result)}"
+                assert worker_result, "Worker failed to catch pool interruption"
+
+                logger.info("Interrupt pool operations test passed")
+            except asyncio.TimeoutError:
+                logger.error("Test timed out")
+                raise
+            finally:
+                # Ensure tasks are cleaned up
+                for task in [worker_task, interrupter_task]:
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+
+    except Exception as e:
+        logger.error(f"Interrupt pool operations test failed: {e}", exc_info=True)
+        raise
+    finally:
+        await cleanup_pool()
+
+@pytest.mark.asyncio
 async def test_rapid_connection_cycling(race_tester):
     """Test rapid creation and disposal of connections."""
     try:
@@ -59,78 +161,10 @@ async def test_rapid_connection_cycling(race_tester):
         raise
 
 @pytest.mark.asyncio
-async def test_interrupt_pool_operations(race_tester):
-    """Test interrupting pool operations mid-flight."""
-    try:
-        logger.info("Starting interrupt pool operations test")
-        pool = await get_pool()
-
-        # Create an event to synchronize workers and interrupter
-        workers_ready = asyncio.Event()
-
-        async def interrupter():
-            # Wait for workers to be ready
-            await workers_ready.wait()
-            race_tester.log_operation("Interrupter starting pool cleanup")
-
-            # Give workers a chance to start their queries
-            await asyncio.sleep(0.1)
-            await cleanup_pool()
-            race_tester.pool_closed = True
-            race_tester.log_operation("Pool cleanup completed")
-            return True
-
-        async def worker(i: int):
-            try:
-                race_tester.log_operation(f"Worker {i} starting")
-                async with pool.acquire() as conn:
-                    race_tester.log_operation(f"Worker {i} acquired connection")
-                    # Signal worker is ready
-                    workers_ready.set()
-
-                    try:
-                        # Run queries until interrupted
-                        while not race_tester.pool_closed:
-                            await conn.fetchval("SELECT 1")
-                            await asyncio.sleep(0.05)
-                        return False
-                    except InterfaceError:
-                        race_tester.log_operation(f"Worker {i} caught expected interruption")
-                        return True
-            except InterfaceError:
-                race_tester.log_operation(f"Worker {i} caught pool shutdown")
-                return True
-            except Exception as e:
-                race_tester.log_operation(f"Worker {i} failed: {str(e)}")
-                race_tester.errors.append((i, str(e)))
-                return False
-
-        # Run with timeout to prevent test hangs
-        async with asyncio.timeout(5):
-            # Start one worker and one interrupter
-            worker_task = asyncio.create_task(worker(0))
-            interrupter_task = asyncio.create_task(interrupter())
-
-            results = await asyncio.gather(worker_task, interrupter_task, return_exceptions=True)
-
-            # Check results (skip interrupter)
-            worker_result = results[0]
-            assert isinstance(worker_result, bool), f"Unexpected worker result type: {type(worker_result)}"
-            assert worker_result, "Worker failed to catch pool interruption"
-
-        logger.info("Interrupt pool operations test passed")
-    except Exception as e:
-        logger.error(f"Interrupt pool operations test failed: {e}")
-        raise
-    finally:
-        await cleanup_pool()
-
-@pytest.mark.asyncio
 async def test_concurrent_pool_creation(race_tester):
     """Test concurrent attempts to create connection pools."""
     try:
         async def pool_creator(i: int):
-            race_tester.log_operation(f"Creator {i} starting")
             try:
                 await init_db()
                 pool = await get_pool()

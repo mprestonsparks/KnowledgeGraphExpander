@@ -68,7 +68,11 @@ async def get_pool() -> Pool:
                 max_size=10,
                 command_timeout=60,
                 loop=asyncio.get_running_loop(),  # Use current event loop
-                init=init_connection
+                init=init_connection,
+                server_settings={
+                    'application_name': 'knowledge_graph',  # For connection tracking
+                    'statement_timeout': '60s'  # Global statement timeout
+                }
             )
             if pool:
                 logger.info("Database connection pool successfully initialized")
@@ -106,10 +110,15 @@ async def cleanup_pool():
     global pool
     try:
         if pool:
-            logger.info("Cleaning up database connection pool")
+            # Log active connections before cleanup
+            if hasattr(pool, '_holders'):
+                active = len([h for h in pool._holders if h._con and not h._con.is_closed()])
+                logger.info(f"Cleaning up pool with {active} active connections")
+            logger.info("Closing all database connections")
             await pool.close()
     finally:
         pool = None
+        logger.info("Pool cleanup completed")
 
 async def get_node(node_id: int):
     """Get a node by ID"""
