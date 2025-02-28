@@ -63,7 +63,7 @@ task = "workflow.run"
 args = "semantic API tests"
 
 [[workflows.workflow]]
-name = "database setup"
+name = "test database setup"
 mode = "sequential"
 author = 39844550
 
@@ -110,3 +110,69 @@ args = "database setup"
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "parallel tasks"
+
+[[workflows.workflow]]
+name = "database setup"
+mode = "sequential"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python -c \" import asyncio from server.database import init_db, cleanup_pool  async def setup_db():     await init_db()     print('Database initialized.')  asyncio.run(setup_db()) \""
+
+[[workflows.workflow]]
+name = "run graph manager service"
+mode = "parallel"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python -c \" import asyncio from server.graph_manager import graph_manager  async def run_service():     await graph_manager.initialize()     print('Graph manager initialized')     # Keep service running     while True:         await asyncio.sleep(1)  asyncio.run(run_service()) \""
+
+[[workflows.workflow]]
+name = "load API service"
+mode = "parallel"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "uvicorn server.app:app --host 0.0.0.0 --port 8080 --reload"
+
+[[workflows.workflow]]
+name = "run connection pool manager"
+mode = "parallel"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python -c \" import asyncio from server.database import get_pool, cleanup_pool  async def manage_pool():     pool = await get_pool()     print('Connection pool manager initialized')     try:         while True:             await asyncio.sleep(5)             # Monitor pool health             print(f'Active connections: {len(pool._holders)}')     finally:         await cleanup_pool()  asyncio.run(manage_pool()) \""
+
+[[workflows.workflow]]
+name = "Concurrent Graph Analysis (Parallel)"
+mode = "parallel"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "run graph manager service"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "load API service"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "run connection pool manager"
+
+[[workflows.workflow]]
+name = "run Concurrent Graph Analysis"
+mode = "sequential"
+author = 39844550
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "database setup"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Concurrent Graph Analysis (Parallel)"
