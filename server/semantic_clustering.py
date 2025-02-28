@@ -49,9 +49,9 @@ class SemanticClusteringService:
         centroid = nodes[0]
 
         for node_id in nodes:
-            degree = self.graph.degree(node_id)
-            if degree > max_degree:
-                max_degree = degree
+            node_degree = self.graph.degree(node_id)
+            if node_degree > max_degree:
+                max_degree = node_degree
                 centroid = node_id
 
         return centroid

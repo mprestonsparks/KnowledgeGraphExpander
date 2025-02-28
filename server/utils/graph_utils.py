@@ -2,8 +2,8 @@ import logging
 import networkx as nx
 import numpy as np
 from scipy import stats
-from typing import Dict, List
-from server.models.schemas import Node, Edge, GraphData, GraphMetrics, HubNode, BridgingNode, ScaleFreeness
+from typing import Dict, List, Any, Optional
+from ..models.schemas import Node, Edge, GraphData, GraphMetrics, HubNode, BridgingNode, ScaleFreeness
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
             degree=int(degree[node]),
             influence=float(eigenvector[node])
         )
-        for node in sorted(degree, key=degree.get, reverse=True)[:5]
+        for node in sorted(degree, key=lambda x: degree[x], reverse=True)[:5]
         if degree[node] > mean_degree
     ]
     logger.info(f"Identified {len(hub_nodes)} hub nodes")
@@ -105,7 +105,7 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
             communities=len(list(G.neighbors(node))),
             betweenness=float(betweenness[node])
         )
-        for node in sorted(betweenness, key=betweenness.get, reverse=True)[:5]
+        for node in sorted(betweenness, key=lambda x: betweenness[x], reverse=True)[:5]
         if betweenness[node] > mean_betweenness
     ]
     logger.info(f"Identified {len(bridging_nodes)} bridging nodes")

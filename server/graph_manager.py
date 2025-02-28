@@ -31,6 +31,7 @@ class GraphManager:
     async def initialize(self):
         """Initialize the graph from the database"""
         try:
+            logger.info("Starting graph manager initialization")
             data = await get_full_graph()
 
             # Add nodes first
@@ -55,7 +56,10 @@ class GraphManager:
             logger.info(f'Graph initialized: {self.graph.number_of_nodes()} nodes, {self.graph.number_of_edges()} edges')
             return True
         except Exception as e:
-            logger.error(f"Error initializing graph: {str(e)}")
+            logger.error(f"Error initializing graph: {str(e)}", exc_info=True)
+            # Initialize with empty graph on error
+            self.graph = nx.Graph()
+            self.semantic_clustering = SemanticClusteringService(self.graph)
             return False
 
     async def get_graph_data(self):

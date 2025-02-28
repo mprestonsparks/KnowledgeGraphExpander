@@ -4,7 +4,7 @@ import pathlib
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from typing import Dict, List, Optional
+from typing import List
 from pydantic import BaseModel
 
 # Configure logging
@@ -32,14 +32,24 @@ os.makedirs("server/models", exist_ok=True)
 # Import routes after directory creation to avoid import errors
 from server.routes import graph, suggestions
 from server.database import init_db
-from server.models.schemas import Node, Edge, GraphData
+from server.graph_manager import graph_manager
 
-# Initialize database
+# Initialize database and graph manager
 @app.on_event("startup")
 async def startup():
-    await init_db()
+    try:
+        logger.info("Initializing database...")
+        await init_db()
+        logger.info("Database initialization complete")
 
-# Include routers
+        logger.info("Initializing graph manager...")
+        await graph_manager.initialize()
+        logger.info("Graph manager initialization complete")
+    except Exception as e:
+        logger.error(f"Startup error: {str(e)}", exc_info=True)
+        raise
+
+# Include routers first, before static file mounting
 app.include_router(graph.router)
 app.include_router(suggestions.router)
 
@@ -71,7 +81,6 @@ manager = ConnectionManager()
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
-        from server.graph_manager import graph_manager
         # Send initial graph data on connection
         graph_data = await graph_manager.get_graph_data()
         await websocket.send_json(graph_data)
@@ -130,10 +139,7 @@ if not frontend_path.exists():
         </html>
         """)
 
-# Mount the React frontend static files
-try:
-    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
-    logger.info(f"Successfully mounted static files from {frontend_path}")
-except Exception as e:
-    logger.error(f"Failed to mount static files: {str(e)}")
-    raise
+# Mount static files last to ensure API routes take precedence
+app.mount("/static", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+
+logger.info("FastAPI application setup complete")
