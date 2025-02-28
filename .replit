@@ -69,7 +69,7 @@ author = 39844550
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python -c \"import asyncio; from server.database import init_db, cleanup_pool; async def setup_db(): await init_db(); await cleanup_pool(); asyncio.run(setup_db())\""
+args = "python tests/db_setup.py"
 
 [[workflows.workflow]]
 name = "API tests"
