@@ -54,8 +54,8 @@ run_test_module() {
         grep -B 1 "FAILED" "$log_file" | grep -v "^--$" >> "$log_file" || true
     fi
 
-    # Append to main test output
-    cat "$log_file" >> "${ROOT_DIR}/tests/reports/test-output.txt"
+    # Generate analysis report
+    bash tests/analyze_strategy.sh >> "$log_file"
 
     return $test_status
 }
@@ -102,6 +102,9 @@ main() {
         fi
         echo "----------------------------------------"
     done
+
+    # Generate final report with analysis
+    bash tests/generate-test-report.sh
 
     # Final summary
     echo "Test Run Complete at $(date)" >> "${ROOT_DIR}/tests/reports/test-output.txt"
