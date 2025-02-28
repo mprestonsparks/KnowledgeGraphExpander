@@ -51,20 +51,21 @@ async def run_transaction(conn, i: int, metrics: ConnectionMetrics):
     """Run a test transaction with metrics collection"""
     start_time = time.time()
     try:
-        async with conn.transaction():
+        async with conn.transaction(isolation='serializable'):
             metrics.transactions += 1
-            # Simulate varying workload
+            # Insert test data with unique identifier
             await conn.execute("""
                 INSERT INTO nodes (label, type) 
                 VALUES ($1, $2)
+                ON CONFLICT (label) DO NOTHING
             """, f"stress_test_{i}", "test")
-            await asyncio.sleep(0.1)  # Simulate work
-            # Verify data
-            count = await conn.fetchval(
-                "SELECT COUNT(*) FROM nodes WHERE label = $1",
-                f"stress_test_{i}"
-            )
-            assert count == 1
+
+            # Verify exactly one row exists
+            count = await conn.fetchval("""
+                SELECT COUNT(*) FROM nodes 
+                WHERE label = $1
+            """, f"stress_test_{i}")
+            assert count == 1, f"Expected 1 node with label 'stress_test_{i}', found {count}"
     finally:
         metrics.log_operation(time.time() - start_time)
 
@@ -74,6 +75,28 @@ async def test_connection_pool_stress(metrics):
     try:
         logger.info("Starting connection pool stress test")
         pool = await get_pool()
+
+        # Clean up test data and set up unique constraint
+        async with pool.acquire() as conn:
+            # First truncate the nodes table to ensure clean state
+            logger.info("Cleaning up existing data")
+            await conn.execute("TRUNCATE nodes CASCADE")
+
+            # Set up unique constraint if not exists
+            logger.info("Setting up unique constraint")
+            await conn.execute("""
+                DO $$ 
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint 
+                        WHERE conname = 'nodes_label_key'
+                    ) THEN
+                        ALTER TABLE nodes 
+                        ADD CONSTRAINT nodes_label_key UNIQUE (label)
+                        DEFERRABLE INITIALLY IMMEDIATE;
+                    END IF;
+                END $$;
+            """)
 
         async def worker(i: int):
             for attempt in range(3):  # Number of retries
@@ -114,6 +137,9 @@ async def test_connection_pool_stress(metrics):
         assert stats["error_count"] == 0, f"Encountered {stats['error_count']} errors"
 
         logger.info("Connection pool stress test passed")
+    except Exception as e:
+        logger.error(f"Connection pool stress test failed: {e}")
+        raise
     finally:
         await cleanup_pool()
 
@@ -127,8 +153,10 @@ async def test_rapid_transaction_cycling(metrics):
         async def transaction_worker(i: int):
             try:
                 async with pool.acquire() as conn:
+                    # Execute successful transaction
                     await run_transaction(conn, i, metrics)
-                    # Force rollback
+
+                    # Force rollback with controlled error
                     async with conn.transaction():
                         await conn.execute("""
                             INSERT INTO nodes (label, type) 
