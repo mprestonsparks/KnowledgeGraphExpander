@@ -30,7 +30,8 @@ class TestAnalyzer:
             "value": r"ValueError",
             "key": r"KeyError",
             "assertion": r"AssertionError",
-            "http": r"status.*500|HTTPError"
+            "http": r"status.*500|HTTPError",
+            "timeout": r"Test execution timed out|⚠️ Tests timed out"
         }
 
     def analyze_logs(self) -> dict:
@@ -41,9 +42,11 @@ class TestAnalyzer:
 
         # Parse failures and errors
         failures = self._parse_failures(test_output)
+        logger.info(f"Parsed failures for modules: {list(failures.keys())}")
 
         # Analyze dependencies
         dependencies = self._analyze_dependencies(failures)
+        logger.info(f"Analyzed dependencies between modules: {dependencies}")
 
         # Generate recommendations
         recommendations = self._generate_recommendations(failures, dependencies)
@@ -68,11 +71,17 @@ class TestAnalyzer:
         try:
             test_output_path = os.path.join(self.test_logs_dir, "test-output.txt")
             if not os.path.exists(test_output_path):
+                logger.error("Test output file not found")
                 return ""
+
             with open(test_output_path, 'r') as f:
-                return f.read()
+                content = f.read()
+                logger.info(f"Read {len(content)} bytes from test output")
+                if not content.strip():
+                    logger.warning("Test output file is empty")
+                return content
         except Exception as e:
-            logger.error(f"Error reading test output: {e}")
+            logger.error(f"Error reading test output: {e}", exc_info=True)
             return ""
 
     def _parse_test_section(self, section: str) -> List[dict]:
@@ -94,6 +103,8 @@ class TestAnalyzer:
                         "error_type": self._determine_error_type("\n".join(current_error)),
                         "file": current_test["file"]
                     })
+                    logger.debug(f"Added failure: {failures[-1]}")
+
                 test_match = re.match(r".*FAILED\s+(.+?)::(.+?)\s+", line)
                 if test_match:
                     current_test = {
@@ -111,6 +122,7 @@ class TestAnalyzer:
                 "error_type": self._determine_error_type("\n".join(current_error)),
                 "file": current_test["file"]
             })
+            logger.debug(f"Added final failure: {failures[-1]}")
 
         return failures
 
@@ -118,30 +130,32 @@ class TestAnalyzer:
         """Parse failures by module"""
         failures = defaultdict(list)
 
-        # Split output into module sections
-        sections = []
-        current_section = []
-        current_module = None
-
         # Extract test sections even from partial output
         for line in test_output.split('\n'):
             if "Running test module:" in line:
-                if current_module and current_section:
-                    sections.append((current_module, '\n'.join(current_section)))
-                current_module = line.split("Running test module:")[1].strip()
-                current_section = []
-            elif current_module and line.strip():
-                current_section.append(line)
-
-        # Add the last section
-        if current_module and current_section:
-            sections.append((current_module, '\n'.join(current_section)))
-
-        # Parse each section
-        for module, section_content in sections:
-            module_failures = self._parse_test_section(section_content)
-            if module_failures:
-                failures[module].extend(module_failures)
+                module = line.split("Running test module:")[1].strip()
+                logger.info(f"Found test module section: {module}")
+            elif "⚠️ Tests timed out" in line and 'module' in locals():
+                failures[module].append({
+                    "test": "module_timeout",
+                    "error": "Test execution timed out",
+                    "error_type": "timeout",
+                    "file": f"tests/test_{module}.py"
+                })
+                logger.info(f"Recorded timeout for module: {module}")
+            elif "FAILED" in line and 'module' in locals():
+                # Extract individual test failures
+                test_match = re.match(r".*FAILED\s+(.+?)::(.+?)\s+", line)
+                if test_match:
+                    file_path, test_name = test_match.groups()
+                    error_text = line[line.find("FAILED"):].strip()
+                    failures[module].append({
+                        "test": test_name,
+                        "error": error_text,
+                        "error_type": self._determine_error_type(error_text),
+                        "file": file_path
+                    })
+                    logger.info(f"Recorded failure for {module}: {test_name}")
 
         return dict(failures)
 
@@ -203,6 +217,10 @@ class TestAnalyzer:
 
         # Generate specific recommendations based on error patterns
         for module, error_counts in module_patterns.items():
+            # Handle timeouts first
+            if error_counts["timeout"] > 0:
+                recommendations.append(f"⚠️ {module} module tests are timing out - consider optimizing or splitting the test suite")
+
             # Import errors suggest missing dependencies
             if error_counts["import"] > 0:
                 recommendations.append(f"Fix import issues in {module} module - check package installation and import paths")
@@ -245,7 +263,7 @@ class TestAnalyzer:
             # Add score based on error types
             for failure in failures[module]:
                 error_type = failure["error_type"]
-                if error_type in ["import", "database"]:
+                if error_type in ["import", "database", "timeout"]:  # Added timeout as critical
                     priority_scores[module] += 1.5  # Critical errors
                 elif error_type in ["attribute", "type", "async"]:
                     priority_scores[module] += 1.0  # Major errors
@@ -284,10 +302,10 @@ class TestAnalyzer:
             f.write(f"Generated at: {datetime.now().strftime('%c')}\n\n")
 
             f.write("## Critical Issues\n")
-            for module, failures in strategy["failures"].items():
+            for module, module_failures in strategy["failures"].items():
                 f.write(f"\n### {module.title()} Module\n")
                 error_types = defaultdict(int)
-                for failure in failures:
+                for failure in module_failures:
                     error_types[failure["error_type"]] += 1
                 for error_type, count in error_types.items():
                     f.write(f"- {count} {error_type} errors\n")

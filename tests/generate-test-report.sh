@@ -6,7 +6,7 @@ mkdir -p tests/strategy_logs
 
 # Run tests and capture full output
 echo "Running test suite..."
-timeout 120 python -m pytest tests/ -v --tb=short 2>&1 | tee tests/reports/test-output.txt
+timeout 300 python -m pytest tests/ -v --tb=short 2>&1 | tee tests/reports/test-output.txt
 TEST_EXIT_CODE=${PIPESTATUS[0]}
 
 # Check if test output was generated
@@ -43,6 +43,11 @@ chmod +x tests/analyze_strategy.sh
 chmod +x .git/hooks/pre-push
 
 echo "Test report generated. View full report in tests/reports/test-report.md"
+
+# Exit with test timeout status if needed
+if [ $TEST_EXIT_CODE -eq 124 ]; then
+    echo "Warning: Test execution timed out after 300 seconds. Results may be incomplete."
+fi
 
 # Exit with the test suite's exit code
 exit $TEST_EXIT_CODE
