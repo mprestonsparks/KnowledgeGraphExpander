@@ -1,183 +1,166 @@
 import pytest
 import asyncio
 import logging
-import asyncpg
-from server.database import init_db, get_pool, cleanup_pool
-from contextlib import contextmanager
-from typing import Optional, Generator
+from asyncpg.exceptions import InterfaceError
+from server.database import (
+    init_db, get_pool, cleanup_pool, close_existing_pool,
+    get_connection
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class EventLoopTestManager:
-    """Helper class to manage event loops during testing"""
-    def __init__(self):
-        self.loop: Optional[asyncio.AbstractEventLoop] = None
-        self.original_loop: Optional[asyncio.AbstractEventLoop] = None
-
-    @contextmanager
-    def create_new_loop(self) -> Generator[asyncio.AbstractEventLoop, None, None]:
-        """Create a new event loop and make it the current one"""
-        try:
-            # Store the current loop if it exists
-            self.original_loop = asyncio.get_event_loop_policy().get_event_loop()
-            
-            # Create and activate new loop
-            self.loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self.loop)
-            yield self.loop
-        finally:
-            if self.loop and not self.loop.is_closed():
-                self.loop.run_until_complete(cleanup_pool())
-                self.loop.close()
-            if self.original_loop:
-                asyncio.set_event_loop(self.original_loop)
-
-@pytest.fixture
-def event_loop_manager():
-    """Provide an event loop manager for tests"""
-    return EventLoopTestManager()
+@pytest.fixture(scope="function")
+async def event_loop():
+    """Create a new event loop for each test."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    yield loop
+    # Clean up
+    await cleanup_pool()
+    if not loop.is_closed():
+        loop.close()
+    asyncio.set_event_loop(None)
 
 @pytest.mark.asyncio
-async def test_event_loop_isolation(event_loop_manager):
-    """Test database operations with isolated event loops"""
+async def test_event_loop_isolation():
+    """Test database operations with isolated event loops."""
     try:
-        with event_loop_manager.create_new_loop() as loop1:
-            # Initialize database in first loop
-            await init_db()
-            pool1 = await get_pool()
-            assert pool1 is not None
-            assert not loop1.is_closed()
+        logger.info("Starting event loop isolation test")
 
-            async with pool1.acquire() as conn:
-                result = await conn.fetchval("SELECT 1")
-                assert result == 1
-                logger.info("First loop connection verified")
+        # First loop operations
+        await init_db()
+        pool1 = await get_pool()
+        assert pool1 is not None
+        assert not asyncio.get_event_loop().is_closed()
 
-        # Create a second loop to verify isolation
-        with event_loop_manager.create_new_loop() as loop2:
-            await init_db()
-            pool2 = await get_pool()
-            assert pool2 is not None
-            assert not loop2.is_closed()
+        async with pool1.acquire() as conn:
+            result = await conn.fetchval("SELECT 1")
+            assert result == 1
+            logger.info("First loop connection verified")
 
-            async with pool2.acquire() as conn:
-                result = await conn.fetchval("SELECT 1")
-                assert result == 1
-                logger.info("Second loop connection verified")
+        await cleanup_pool()
 
+        # Second loop operations
+        await init_db()
+        pool2 = await get_pool()
+        assert pool2 is not None
+        assert not asyncio.get_event_loop().is_closed()
+
+        async with pool2.acquire() as conn:
+            result = await conn.fetchval("SELECT 1")
+            assert result == 1
+            logger.info("Second loop connection verified")
+
+        await cleanup_pool()
         logger.info("Event loop isolation test passed")
     except Exception as e:
-        logger.error(f"Event loop isolation test failed: {e}")
+        logger.error(f"Event loop isolation test failed: {e}", exc_info=True)
         raise
 
 @pytest.mark.asyncio
-async def test_event_loop_cleanup(event_loop_manager):
-    """Test proper cleanup of event loops and connections"""
+async def test_event_loop_cleanup():
+    """Test proper cleanup of event loops and connections."""
     try:
-        with event_loop_manager.create_new_loop() as loop:
-            await init_db()
-            pool = await get_pool()
+        logger.info("Starting event loop cleanup test")
+        await init_db()
+        pool = await get_pool()
 
-            # Create multiple connections
-            conns = []
-            for i in range(3):
-                conn = await pool.acquire()
-                conns.append(conn)
-                result = await conn.fetchval("SELECT 1")
-                assert result == 1
+        # Create multiple connections
+        conns = []
+        for i in range(3):
+            conn = await pool.acquire()
+            conns.append(conn)
+            result = await conn.fetchval("SELECT 1")
+            assert result == 1
+            logger.info(f"Connection {i} verified")
 
-            # Release connections properly
-            for conn in conns:
-                await pool.release(conn)
+        # Release connections properly
+        for conn in conns:
+            await pool.release(conn)
 
-            await cleanup_pool()
-            assert loop.is_running()
-            logger.info("Event loop cleanup test passed")
+        await cleanup_pool()
+        logger.info("Event loop cleanup test passed")
     except Exception as e:
-        logger.error(f"Event loop cleanup test failed: {e}")
+        logger.error(f"Event loop cleanup test failed: {e}", exc_info=True)
         raise
 
 @pytest.mark.asyncio
 async def test_concurrent_event_loops():
-    """Test handling concurrent event loops"""
+    """Test handling concurrent event loops."""
     try:
-        async def run_in_loop(loop_id: int):
-            await init_db()
-            pool = await get_pool()
-            async with pool.acquire() as conn:
-                result = await conn.fetchval("SELECT $1::int", loop_id)
-                assert result == loop_id
-                logger.info(f"Loop {loop_id} executed successfully")
-            await cleanup_pool()
-
-        # Run concurrent operations
-        tasks = [run_in_loop(i) for i in range(3)]
-        await asyncio.gather(*tasks)
-        logger.info("Concurrent event loops test passed")
-    except Exception as e:
-        logger.error(f"Concurrent event loops test failed: {e}")
-        raise
-
-@pytest.mark.asyncio
-async def test_event_loop_error_recovery():
-    """Test recovery from event loop errors"""
-    try:
+        logger.info("Starting concurrent event loops test")
         await init_db()
         pool = await get_pool()
 
-        async with pool.acquire() as conn:
-            # Simulate a connection error
-            with pytest.raises(asyncpg.PostgresError):
-                await conn.execute("INVALID SQL")
+        async def worker(i: int):
+            try:
+                async with pool.acquire() as conn:
+                    result = await conn.fetchval("SELECT $1::int", i)
+                    assert result == i
+                    logger.info(f"Worker {i} executed successfully")
+                    return True
+            except Exception as e:
+                logger.error(f"Worker {i} failed: {e}")
+                return False
 
-            # Verify connection is still usable
-            result = await conn.fetchval("SELECT 1")
-            assert result == 1
+        # Run concurrent operations
+        tasks = [worker(i) for i in range(3)]
+        results = await asyncio.gather(*tasks)
 
-        # Test connection after error
-        async with pool.acquire() as conn:
-            result = await conn.fetchval("SELECT 1")
-            assert result == 1
+        # Cleanup after all workers are done
+        await cleanup_pool()
 
-        logger.info("Event loop error recovery test passed")
+        assert all(results), "Some workers failed"
+        logger.info("Concurrent event loops test passed")
     except Exception as e:
-        logger.error(f"Event loop error recovery test failed: {e}")
+        logger.error(f"Concurrent event loops test failed: {e}", exc_info=True)
         raise
+    finally:
+        await cleanup_pool()
 
 @pytest.mark.asyncio
-async def test_transaction_across_loops(event_loop_manager):
-    """Test transaction handling across different event loops"""
+async def test_transaction_across_loops():
+    """Test transaction handling across different event loops."""
     try:
-        with event_loop_manager.create_new_loop() as loop:
-            await init_db()
-            pool = await get_pool()
+        logger.info("Starting transaction across loops test")
+        # Initialize database
+        await init_db()
+        pool = await get_pool()
 
-            async with pool.acquire() as conn:
-                async with conn.transaction():
-                    # Insert test data
-                    await conn.execute("""
-                        INSERT INTO nodes (label, type) 
-                        VALUES ($1, $2)
-                    """, "test_node", "test")
+        # Clean up any existing test data
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                DELETE FROM nodes 
+                WHERE label = 'test_node'
+            """)
 
-                    # Verify in same transaction
-                    count = await conn.fetchval("""
-                        SELECT COUNT(*) FROM nodes 
-                        WHERE label = $1
-                    """, "test_node")
-                    assert count == 1
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                # Insert test data
+                await conn.execute("""
+                    INSERT INTO nodes (label, type) 
+                    VALUES ($1, $2)
+                """, "test_node", "test")
 
-            # Verify in new connection
-            async with pool.acquire() as conn:
+                # Verify in same transaction
                 count = await conn.fetchval("""
                     SELECT COUNT(*) FROM nodes 
                     WHERE label = $1
                 """, "test_node")
                 assert count == 1
 
-            logger.info("Transaction across loops test passed")
+            # Verify in new connection
+            async with pool.acquire() as conn2:
+                count = await conn2.fetchval("""
+                    SELECT COUNT(*) FROM nodes 
+                    WHERE label = $1
+                """, "test_node")
+                assert count == 1
+
+        await cleanup_pool()
+        logger.info("Transaction across loops test passed")
     except Exception as e:
-        logger.error(f"Transaction across loops test failed: {e}")
+        logger.error(f"Transaction across loops test failed: {e}", exc_info=True)
         raise

@@ -2,7 +2,7 @@ import pytest
 import asyncio
 import logging
 import asyncpg
-from asyncpg.exceptions import InterfaceError
+from asyncpg.exceptions import InterfaceError, QueryCanceledError
 from server.database import (
     init_db, get_pool, cleanup_pool, close_existing_pool,
     get_connection
@@ -91,7 +91,7 @@ async def test_interrupt_pool_operations(race_tester):
                         """)
                         # If we get here without timeout, return false
                         return False
-                    except (InterfaceError, asyncpg.exceptions.QueryCanceledError) as e:
+                    except (InterfaceError, QueryCanceledError) as e:
                         race_tester.log_operation(f"Worker {i} caught expected interruption: {str(e)}")
                         return True
             except InterfaceError as e:
@@ -137,7 +137,7 @@ async def test_interrupt_pool_operations(race_tester):
         await cleanup_pool()
 
 @pytest.mark.asyncio
-async def test_rapid_connection_cycling(race_tester):
+async def test_rapid_connection_cycling():
     """Test rapid creation and disposal of connections."""
     try:
         logger.info("Starting rapid pool cycling test")
@@ -161,7 +161,7 @@ async def test_rapid_connection_cycling(race_tester):
         raise
 
 @pytest.mark.asyncio
-async def test_concurrent_pool_creation(race_tester):
+async def test_concurrent_pool_creation():
     """Test concurrent attempts to create connection pools."""
     try:
         async def pool_creator(i: int):
@@ -171,11 +171,10 @@ async def test_concurrent_pool_creation(race_tester):
                 async with pool.acquire() as conn:
                     result = await conn.fetchval("SELECT 1")
                     assert result == 1
-                    race_tester.log_operation(f"Creator {i} succeeded")
+                    logger.info(f"Creator {i} succeeded")
                     return True
             except Exception as e:
-                race_tester.log_operation(f"Creator {i} failed: {str(e)}")
-                race_tester.errors.append((i, str(e)))
+                logger.error(f"Creator {i} failed: {e}")
                 return False
             finally:
                 await cleanup_pool()

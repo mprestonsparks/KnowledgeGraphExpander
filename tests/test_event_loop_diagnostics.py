@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 import logging
-from asyncpg.exceptions import InterfaceError
+from asyncpg.exceptions import InterfaceError, QueryCanceledError
 from server.database import (
     init_db, get_pool, cleanup_pool, close_existing_pool,
     get_connection
@@ -48,16 +48,16 @@ async def test_rapid_pool_cycling():
         for i in range(3):
             logger.info(f"Cycle {i+1} starting")
             pool, loop = await EventLoopDiagnostics.test_pool_creation()
-            
+
             # Test pool usage
             result = await EventLoopDiagnostics.test_connection_acquisition(pool)
             assert result == 1
-            
+
             # Cleanup
             logger.info(f"Cleaning up pool on loop {id(loop)}")
             await cleanup_pool()
             logger.info(f"Cycle {i+1} completed")
-            
+
         logger.info("Rapid pool cycling test passed")
     except Exception as e:
         logger.error(f"Rapid pool cycling test failed: {e}")
@@ -78,7 +78,7 @@ async def test_concurrent_pool_operations():
         # Run concurrent workers
         tasks = [worker(i) for i in range(5)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Verify results
         for i, result in enumerate(results):
             if isinstance(result, Exception):
@@ -100,10 +100,10 @@ async def test_connection_lifecycle_tracking():
 
         # Track connection states
         connection_states = []
-        
+
         async with pool.acquire() as conn:
             connection_states.append(("acquired", id(conn)))
-            
+
             # Test transaction
             async with conn.transaction():
                 await conn.execute("""

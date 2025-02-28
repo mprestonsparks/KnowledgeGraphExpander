@@ -30,11 +30,20 @@ class ConnectionStateTracker:
 
 @pytest.fixture(scope="function")
 async def state_tracker():
+    """Provide a state tracker for each test."""
     tracker = ConnectionStateTracker()
-    yield tracker
-    # Log final state
-    for entry in tracker.state_log:
-        logger.info(f"{entry['timestamp']:.6f}: {entry['event']} - {entry['details']}")
+    try:
+        await init_db()
+        # Clean up before test
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM nodes WHERE label LIKE 'test_%'")
+        yield tracker
+    finally:
+        # Clean up and log final state
+        await cleanup_pool()
+        for entry in tracker.state_log:
+            logger.info(f"{entry['timestamp']:.6f}: {entry['event']} - {entry['details']}")
 
 @pytest.mark.asyncio
 async def test_connection_state_transitions(state_tracker):
@@ -43,7 +52,7 @@ async def test_connection_state_transitions(state_tracker):
         # Initialize connection
         state_tracker.log_state("test_start")
         pool = await get_pool()
-        
+
         async with pool.acquire() as conn:
             state_tracker.active_connections += 1
             state_tracker.log_state("connection_acquired")
@@ -52,11 +61,11 @@ async def test_connection_state_transitions(state_tracker):
             async with conn.transaction():
                 state_tracker.transaction_count += 1
                 state_tracker.log_state("transaction_started")
-                
+
                 await conn.execute("""
                     INSERT INTO nodes (label, type) 
                     VALUES ($1, $2)
-                """, "test_node", "test")
+                """, "test_state_transition", "test")
                 state_tracker.log_state("query_executed")
 
             state_tracker.transaction_count -= 1
@@ -65,20 +74,18 @@ async def test_connection_state_transitions(state_tracker):
             # Verify data
             count = await conn.fetchval(
                 "SELECT COUNT(*) FROM nodes WHERE label = $1",
-                "test_node"
+                "test_state_transition"
             )
             assert count == 1
             state_tracker.log_state("data_verified")
 
         state_tracker.active_connections -= 1
         state_tracker.log_state("connection_released")
-        
+
         logger.info("Connection state transitions test passed")
     except Exception as e:
-        logger.error(f"Connection state transitions test failed: {e}")
+        logger.error(f"Connection state transitions test failed: {e}", exc_info=True)
         raise
-    finally:
-        await cleanup_pool()
 
 @pytest.mark.asyncio
 async def test_transaction_nesting(state_tracker):
@@ -100,12 +107,12 @@ async def test_transaction_nesting(state_tracker):
                 async with conn.transaction():
                     state_tracker.transaction_count += 1
                     state_tracker.log_state("inner_transaction_started")
-                    
+
                     await conn.execute("""
                         INSERT INTO nodes (label, type) 
                         VALUES ($1, $2)
-                    """, "nested_test", "test")
-                    
+                    """, "test_nested_transaction", "test")
+
                     state_tracker.log_state("query_executed")
 
                 state_tracker.transaction_count -= 1
@@ -116,13 +123,11 @@ async def test_transaction_nesting(state_tracker):
 
         state_tracker.active_connections -= 1
         state_tracker.log_state("connection_released")
-        
+
         logger.info("Transaction nesting test passed")
     except Exception as e:
-        logger.error(f"Transaction nesting test failed: {e}")
+        logger.error(f"Transaction nesting test failed: {e}", exc_info=True)
         raise
-    finally:
-        await cleanup_pool()
 
 @pytest.mark.asyncio
 async def test_transaction_rollback(state_tracker):
@@ -139,13 +144,13 @@ async def test_transaction_rollback(state_tracker):
                 async with conn.transaction():
                     state_tracker.transaction_count += 1
                     state_tracker.log_state("transaction_started")
-                    
+
                     await conn.execute("""
                         INSERT INTO nodes (label, type) 
                         VALUES ($1, $2)
-                    """, "rollback_test", "test")
+                    """, "test_rollback", "test")
                     state_tracker.log_state("query_executed")
-                    
+
                     # Force an error
                     await conn.execute("SELECT 1/0")
             except Exception:
@@ -155,17 +160,15 @@ async def test_transaction_rollback(state_tracker):
             # Verify rollback
             count = await conn.fetchval(
                 "SELECT COUNT(*) FROM nodes WHERE label = $1",
-                "rollback_test"
+                "test_rollback"
             )
             assert count == 0
             state_tracker.log_state("rollback_verified")
 
         state_tracker.active_connections -= 1
         state_tracker.log_state("connection_released")
-        
+
         logger.info("Transaction rollback test passed")
     except Exception as e:
-        logger.error(f"Transaction rollback test failed: {e}")
+        logger.error(f"Transaction rollback test failed: {e}", exc_info=True)
         raise
-    finally:
-        await cleanup_pool()

@@ -3,7 +3,7 @@ import asyncio
 import logging
 import time
 from typing import List, Dict, Any
-from asyncpg.exceptions import InterfaceError
+from asyncpg.exceptions import InterfaceError, UniqueViolationError
 from server.database import (
     init_db, get_pool, cleanup_pool, close_existing_pool,
     get_connection
@@ -53,18 +53,21 @@ async def run_transaction(conn, i: int, metrics: ConnectionMetrics):
     try:
         async with conn.transaction(isolation='serializable'):
             metrics.transactions += 1
-            # Insert test data with unique identifier
-            await conn.execute("""
-                INSERT INTO nodes (label, type) 
-                VALUES ($1, $2)
-                ON CONFLICT (label) DO NOTHING
-            """, f"stress_test_{i}", "test")
+            # Insert test data
+            try:
+                await conn.execute("""
+                    INSERT INTO nodes (label, type) 
+                    VALUES ($1, $2)
+                    """, f"stress_test_{i}", "test")
+            except UniqueViolationError:
+                # Node already exists, skip
+                pass
 
             # Verify exactly one row exists
             count = await conn.fetchval("""
                 SELECT COUNT(*) FROM nodes 
                 WHERE label = $1
-            """, f"stress_test_{i}")
+                """, f"stress_test_{i}")
             assert count == 1, f"Expected 1 node with label 'stress_test_{i}', found {count}"
     finally:
         metrics.log_operation(time.time() - start_time)
@@ -82,20 +85,25 @@ async def test_connection_pool_stress(metrics):
             logger.info("Cleaning up existing data")
             await conn.execute("TRUNCATE nodes CASCADE")
 
-            # Set up unique constraint if not exists
-            logger.info("Setting up unique constraint")
+            # Drop existing constraint if any
+            logger.info("Dropping existing constraint if any")
             await conn.execute("""
                 DO $$ 
                 BEGIN
-                    IF NOT EXISTS (
+                    IF EXISTS (
                         SELECT 1 FROM pg_constraint 
                         WHERE conname = 'nodes_label_key'
                     ) THEN
-                        ALTER TABLE nodes 
-                        ADD CONSTRAINT nodes_label_key UNIQUE (label)
-                        DEFERRABLE INITIALLY IMMEDIATE;
+                        ALTER TABLE nodes DROP CONSTRAINT nodes_label_key;
                     END IF;
                 END $$;
+            """)
+
+            # Set up unique constraint
+            logger.info("Setting up unique constraint")
+            await conn.execute("""
+                ALTER TABLE nodes 
+                ADD CONSTRAINT nodes_label_key UNIQUE (label)
             """)
 
         async def worker(i: int):
@@ -112,6 +120,12 @@ async def test_connection_pool_stress(metrics):
                         for j in range(3):  # Reduced number of transactions per worker
                             await run_transaction(conn, i * 100 + j, metrics)
                         return True
+                except UniqueViolationError as e:
+                    metrics.errors.append((i, f"Unique violation: {str(e)}"))
+                    logger.warning(f"Worker {i} encountered unique violation on attempt {attempt + 1}")
+                    if attempt < 2:  # Don't sleep on last attempt
+                        await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
+                    continue
                 except Exception as e:
                     metrics.errors.append((i, str(e)))
                     logger.warning(f"Worker {i} failed attempt {attempt + 1}: {str(e)}")
@@ -138,7 +152,7 @@ async def test_connection_pool_stress(metrics):
 
         logger.info("Connection pool stress test passed")
     except Exception as e:
-        logger.error(f"Connection pool stress test failed: {e}")
+        logger.error(f"Connection pool stress test failed: {e}", exc_info=True)
         raise
     finally:
         await cleanup_pool()

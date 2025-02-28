@@ -64,7 +64,15 @@ class GraphManager:
             self.semantic_clustering = SemanticClusteringService(self.graph)
             return False
 
-    async def get_graph_data(self) -> GraphData:
+    def count_disconnected_nodes(self) -> int:
+        """Count nodes with no connections."""
+        count = 0
+        for node in self.graph.nodes():
+            if self.graph.degree(node) == 0:
+                count += 1
+        return count
+
+    async def get_graph_data(self) -> dict:
         """Get the complete graph data with metrics and clusters"""
         if self.graph.number_of_nodes() == 0:
             await self.initialize()
@@ -97,7 +105,7 @@ class GraphManager:
             edges.append(edge)
 
         # Get clusters - this is synchronous, no await needed
-        clusters = self.semantic_clustering.cluster_nodes()
+        clusters = self.semantic_clustering.cluster_nodes() if self.semantic_clustering else []
 
         # Get metrics - this is synchronous, no await needed
         metrics = self.calculate_metrics()
@@ -179,7 +187,7 @@ class GraphManager:
             }
         }
 
-    async def analyze_content(self, content: dict) -> GraphData:
+    async def analyze_content(self, content: dict) -> dict:
         """Analyze content and extract knowledge graph elements"""
         try:
             logger.info('Starting content analysis')
