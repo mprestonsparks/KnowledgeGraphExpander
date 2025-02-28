@@ -1,25 +1,8 @@
-function isValidBase64(str: string): boolean {
-  if (!str) return false;
-
-  // Check for valid base64 characters only
-  const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
-  if (!base64Regex.test(str)) return false;
-
-  // Check length is multiple of 4
-  if (str.length % 4 !== 0) return false;
-
-  try {
-    const buffer = Buffer.from(str, 'base64');
-    return Buffer.from(buffer.toString('base64')).length === buffer.length;
-  } catch {
-    return false;
-  }
-}
-
+import { z } from "zod";
 import Anthropic from '@anthropic-ai/sdk';
 import type { Node, Edge, InsertNode, InsertEdge, RelationshipSuggestion } from "@shared/schema";
 
-// the newest Anthropic model is "claude-3-5-sonnet-20241022" which was released October 22, 2024
+// the newest Anthropic model is "claude-3-7-sonnet-20250219" which was released February 24, 2025
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
   dangerouslyAllowBrowser: process.env.NODE_ENV === 'test' // Enable for testing environment
@@ -44,9 +27,32 @@ interface MultimodalContent {
   }>;
 }
 
+function isValidBase64(str: string): boolean {
+  if (!str) return false;
+
+  try {
+    // Check for valid base64 characters only
+    const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+    if (!base64Regex.test(str)) return false;
+
+    // Check length is multiple of 4
+    if (str.length % 4 !== 0) return false;
+
+    // Try to decode and verify
+    const buffer = Buffer.from(str, 'base64');
+    return Buffer.from(buffer.toString('base64')).length === buffer.length;
+  } catch {
+    return false;
+  }
+}
+
 export class SemanticAnalysisService {
   async analyzeContent(content: MultimodalContent, existingNodes: Node[] = []): Promise<SemanticAnalysisResult> {
     try {
+      if (!content.text) {
+        throw new Error('Text content is required');
+      }
+
       // Validate image data if present
       if (content.images?.length) {
         for (const image of content.images) {
@@ -82,22 +88,20 @@ Rules:
 5. For image nodes, include descriptions and visual context
 6. Response must be pure JSON - no explanation text before or after`;
 
-      // Prepare messages array with text content
-      const messages = [
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "text",
-              text: `${systemPrompt}\n\nExisting nodes:\n${JSON.stringify(existingNodes, null, 2)}\n\nContent to analyze:\n${content.text}`
-            }
-          ]
-        }
-      ];
+      // Prepare message content
+      const messages = [{
+        role: "user" as const,
+        content: [
+          {
+            type: "text",
+            text: `${systemPrompt}\n\nExisting nodes:\n${JSON.stringify(existingNodes, null, 2)}\n\nContent to analyze:\n${content.text}`
+          }
+        ]
+      }];
 
       // Add image content if available
       if (content.images?.length) {
-        content.images.forEach(image => {
+        for (const image of content.images) {
           messages[0].content.push({
             type: "image",
             source: {
@@ -106,12 +110,12 @@ Rules:
               data: image.data
             }
           });
-        });
+        }
       }
 
       const response = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        messages: messages,
+        model: "claude-3-7-sonnet-20250219",
+        messages,
         max_tokens: 1024
       });
 
@@ -139,12 +143,19 @@ Rules:
       };
     } catch (error) {
       console.error('Semantic analysis failed:', error);
-      throw error; // Re-throw the error to be handled by the caller
+      throw error;
     }
   }
 
-  async validateRelationships(sourceNode: Node, targetNodes: Node[]): Promise<ValidationResult> {
+  async validateRelationships(sourceNode: Node | null, targetNodes: Node[] | null): Promise<ValidationResult> {
     try {
+      if (!sourceNode) {
+        throw new Error('Invalid source node');
+      }
+      if (!Array.isArray(targetNodes)) {
+        throw new Error('Invalid target nodes');
+      }
+
       const systemPrompt = `You are a semantic relationship validator. Analyze the connections between the source node and target nodes.
 
 Important: Your response must be valid JSON in this exact format:
@@ -160,7 +171,7 @@ Rules:
 4. Response must be pure JSON - no explanation text before or after`;
 
       const response = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-3-7-sonnet-20250219",
         messages: [
           {
             role: "user",
@@ -194,12 +205,19 @@ Analyze the semantic coherence and validity of relationships between the source 
       };
     } catch (error) {
       console.error('Failed to validate relationships:', error);
-      throw new Error('Failed to validate relationships');
+      throw error;
     }
   }
 
-  async suggestRelationships(nodes: Node[]): Promise<RelationshipSuggestion[]> {
+  async suggestRelationships(nodes: Node[] | null): Promise<RelationshipSuggestion[]> {
     try {
+      if (!Array.isArray(nodes)) {
+        throw new Error('Invalid nodes array');
+      }
+      if (nodes.length === 0) {
+        throw new Error('No nodes provided');
+      }
+
       const prompt = `Given these knowledge graph nodes, suggest meaningful relationships between them. 
 Output must be a valid JSON array in this format:
 [{
@@ -220,7 +238,7 @@ Nodes:
 ${JSON.stringify(nodes, null, 2)}`;
 
       const response = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-3-7-sonnet-20250219",
         messages: [
           {
             role: "user",
@@ -243,7 +261,7 @@ ${JSON.stringify(nodes, null, 2)}`;
       return suggestions;
     } catch (error) {
       console.error('Failed to suggest relationships:', error);
-      throw new Error('Failed to suggest relationships');
+      throw error;
     }
   }
 }

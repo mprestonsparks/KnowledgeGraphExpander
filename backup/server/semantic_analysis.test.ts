@@ -38,9 +38,13 @@ describe('SemanticAnalysisService', () => {
         return {
           content: [{
             type: 'text',
-            text: JSON.stringify([
-              { sourceId: 1, targetId: 2, label: "test_relation", weight: 1 }
-            ])
+            text: JSON.stringify([{
+              sourceId: 1,
+              targetId: 2,
+              label: "test_relation",
+              confidence: 0.85,
+              explanation: "Strong thematic connection"
+            }])
           }]
         };
       }
@@ -165,6 +169,11 @@ describe('SemanticAnalysisService', () => {
       expect(result.confidenceScores).toHaveProperty('2', 0.85);
       expect(result.reasoning).toBeTruthy();
     });
+
+    it('should handle missing or invalid input gracefully', async () => {
+      await expect(service.validateRelationships(null as any, [])).rejects.toThrow('Invalid source node');
+      await expect(service.validateRelationships(mockNodes[0], null as any)).rejects.toThrow('Invalid target nodes');
+    });
   });
 
   describe('suggestRelationships', () => {
@@ -186,6 +195,11 @@ describe('SemanticAnalysisService', () => {
 
       expect(result[0]).toHaveProperty('confidence');
       expect(result[0]).toHaveProperty('explanation');
+    });
+
+    it('should handle empty or invalid input gracefully', async () => {
+      await expect(service.suggestRelationships([])).rejects.toThrow('No nodes provided');
+      await expect(service.suggestRelationships(null as any)).rejects.toThrow('Invalid nodes array');
     });
   });
 });

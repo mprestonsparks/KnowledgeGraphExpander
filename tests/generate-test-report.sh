@@ -4,7 +4,7 @@
 mkdir -p tests/reports
 
 # Run tests and capture full output
-npx vitest run 2>&1 | tee tests/reports/test-output.txt
+python -m pytest tests/ -v 2>&1 | tee tests/reports/test-output.txt
 
 # Generate summary markdown
 echo "# Test Execution Summary" > tests/reports/test-summary.md
@@ -22,18 +22,15 @@ echo "\`\`\`" >> tests/reports/test-summary.md
 cat > tests/reports/test-report.md << 'EOL'
 # Test Report Summary
 
-## Core Infrastructure Tests
-- Database Connectivity Tests
-- WebSocket Implementation Tests
-- Graph Data Structure Tests
+## Core System Tests
+- Database Connection Tests
+- Graph Structure Tests
+- API Integration Tests
 
-## Integration Tests
-- React Component Tests
-- Cytoscape Integration Tests
-
-## UI/UX Tests
-- Layout and Styling Tests
-- User Interaction Tests
+## Graph Analysis Tests
+- Node/Edge Operations
+- Clustering Analysis
+- Semantic Processing
 
 ## Test Execution Metrics
 $(grep "Test Files" tests/reports/test-output.txt)
@@ -42,7 +39,7 @@ $(grep "Test Files" tests/reports/test-output.txt)
 $(grep "FAIL" tests/reports/test-output.txt)
 
 ## Next Steps
-1. Address database connection handling in test environment
-2. Fix WebSocket event simulation in tests
-3. Resolve UI component test configuration
+1. Address any database connection issues
+2. Fix semantic analysis failures
+3. Resolve API integration errors
 EOL
