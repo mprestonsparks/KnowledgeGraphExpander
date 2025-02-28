@@ -15,6 +15,16 @@ class Edge(BaseModel):
     weight: float = 1.0
     metadata: Optional[Dict[str, Any]] = {}
 
+class HubNode(BaseModel):
+    id: int
+    degree: int
+    influence: float
+
+class BridgingNode(BaseModel):
+    id: int
+    communities: int
+    betweenness: float
+
 class ClusterMetadata(BaseModel):
     centroidNode: Optional[str] = None
     semanticTheme: str
@@ -28,8 +38,8 @@ class ClusterResult(BaseModel):
 class ScaleFreeness(BaseModel):
     powerLawExponent: float
     fitQuality: float
-    hubNodes: List[Dict[str, Any]]
-    bridgingNodes: List[Dict[str, Any]]
+    hubNodes: List[HubNode]
+    bridgingNodes: List[BridgingNode]
 
 class GraphMetrics(BaseModel):
     betweenness: Dict[str, float]
@@ -68,4 +78,4 @@ class ApplySuggestionRequest(BaseModel):
     sourceId: int
     targetId: int
     label: str
-    weight: int = 1
+    weight: float = 1.0

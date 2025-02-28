@@ -19,7 +19,10 @@ async def get_graph_data():
         return data
     except Exception as e:
         logger.error(f"Error getting graph data: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get graph data: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Failed to get graph data", "error": str(e)}
+        )
 
 @router.post("/expand", response_model=GraphData)
 async def expand_graph(request: ExpandGraphRequest):
@@ -31,19 +34,25 @@ async def expand_graph(request: ExpandGraphRequest):
         return data
     except Exception as e:
         logger.error(f"Error expanding graph: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to expand graph: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Failed to expand graph", "error": str(e)}
+        )
 
 @router.post("/analyze", response_model=GraphData)
 async def analyze_content(request: ContentAnalysisRequest):
     """Analyze content and update the graph"""
     try:
         logger.info("Received content analysis request")
-        data = await graph_manager.analyze_content(request.dict())
+        data = await graph_manager.analyze_content(request.model_dump())
         logger.info(f"Content analysis completed: {len(data.get('nodes', []))} nodes, {len(data.get('edges', []))} edges")
         return data
     except Exception as e:
         logger.error(f"Error analyzing content: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to analyze content: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Failed to analyze content", "error": str(e)}
+        )
 
 @router.post("/cluster", response_model=GraphData)
 async def reapply_clustering():
@@ -55,4 +64,7 @@ async def reapply_clustering():
         return data
     except Exception as e:
         logger.error(f"Error recalculating clusters: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to recalculate clusters: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Failed to recalculate clusters", "error": str(e)}
+        )

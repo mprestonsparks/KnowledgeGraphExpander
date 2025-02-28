@@ -2,7 +2,8 @@ import os
 import json
 import asyncpg
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
+from asyncpg.pool import Pool
 
 logger = logging.getLogger(__name__)
 
@@ -13,32 +14,41 @@ DATABASE_URL = os.environ.get(
 )
 
 # Global connection pool
-pool = None
+pool: Optional[Pool] = None
 
-async def init_db():
-    """Initialize the database connection pool"""
+async def get_pool() -> Pool:
+    """Get or create the database connection pool"""
     global pool
     try:
-        logger.info("Creating database connection pool...")
-        pool = await asyncpg.create_pool(DATABASE_URL)
-        if pool:
-            logger.info("Database connection pool successfully initialized")
-            # Test the connection
-            async with pool.acquire() as conn:
-                await conn.execute("SELECT 1")
-                logger.info("Database connection test successful")
+        if pool is None or pool.is_closed():
+            logger.info("Creating new database connection pool...")
+            pool = await asyncpg.create_pool(
+                DATABASE_URL,
+                min_size=2,
+                max_size=10,
+                command_timeout=60
+            )
+            if pool:
+                logger.info("Database connection pool successfully initialized")
+                # Test the connection
+                async with pool.acquire() as conn:
+                    await conn.execute("SELECT 1")
+                    logger.info("Database connection test successful")
         return pool
     except Exception as e:
-        logger.error(f"Failed to initialize database: {str(e)}", exc_info=True)
+        logger.error(f"Failed to initialize database pool: {str(e)}", exc_info=True)
+        if pool and not pool.is_closed():
+            await pool.close()
+        pool = None
         raise
 
-async def get_pool():
-    """Get the database connection pool"""
+async def cleanup_pool():
+    """Cleanup the database connection pool"""
     global pool
-    if pool is None:
-        logger.info("Database pool not initialized, creating new pool")
-        pool = await init_db()
-    return pool
+    if pool and not pool.is_closed():
+        logger.info("Cleaning up database connection pool")
+        await pool.close()
+        pool = None
 
 async def get_node(node_id: int):
     """Get a node by ID"""
@@ -92,7 +102,7 @@ async def get_all_nodes():
             logger.debug(f"Retrieved {len(nodes)} nodes")
             return nodes
     except Exception as e:
-        logger.error("Error retrieving all nodes: {str(e)}", exc_info=True)
+        logger.error(f"Error retrieving all nodes: {str(e)}", exc_info=True)
         raise
 
 async def create_node(node_data):
@@ -100,20 +110,21 @@ async def create_node(node_data):
     try:
         pool = await get_pool()
         async with pool.acquire() as conn:
-            metadata_json = json.dumps(node_data.get("metadata", {}))
-            row = await conn.fetchrow(
-                "INSERT INTO nodes (label, type, metadata) VALUES ($1, $2, $3) RETURNING id, label, type, metadata",
-                node_data.get("label"), node_data.get("type", "concept"),
-                metadata_json)
+            async with conn.transaction():
+                metadata_json = json.dumps(node_data.get("metadata", {}))
+                row = await conn.fetchrow(
+                    "INSERT INTO nodes (label, type, metadata) VALUES ($1, $2, $3) RETURNING id, label, type, metadata",
+                    node_data.get("label"), node_data.get("type", "concept"),
+                    metadata_json)
 
-            node = {
-                "id": row["id"],
-                "label": row["label"],
-                "type": row["type"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
-            }
-            logger.info(f"Created new node with ID {node['id']}")
-            return node
+                node = {
+                    "id": row["id"],
+                    "label": row["label"],
+                    "type": row["type"],
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
+                }
+                logger.info(f"Created new node with ID {node['id']}")
+                return node
     except Exception as e:
         logger.error(f"Error creating node: {str(e)}", exc_info=True)
         raise
@@ -147,7 +158,6 @@ async def get_edge(edge_id: int):
         logger.error(f"Error retrieving edge {edge_id}: {str(e)}", exc_info=True)
         raise
 
-
 async def get_all_edges():
     """Get all edges"""
     try:
@@ -175,7 +185,7 @@ async def get_all_edges():
             logger.debug(f"Retrieved {len(edges)} edges")
             return edges
     except Exception as e:
-        logger.error("Error retrieving all edges: {str(e)}", exc_info=True)
+        logger.error(f"Error retrieving all edges: {str(e)}", exc_info=True)
         raise
 
 async def create_edge(edge_data):
@@ -183,44 +193,45 @@ async def create_edge(edge_data):
     try:
         pool = await get_pool()
         async with pool.acquire() as conn:
-            # Check if nodes exist
-            source_exists = await conn.fetchval(
-                "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = $1)",
-                edge_data.get("sourceId"))
-            target_exists = await conn.fetchval(
-                "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = $1)",
-                edge_data.get("targetId"))
+            async with conn.transaction():
+                # Check if nodes exist
+                source_exists = await conn.fetchval(
+                    "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = $1)",
+                    edge_data.get("sourceId"))
+                target_exists = await conn.fetchval(
+                    "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = $1)",
+                    edge_data.get("targetId"))
 
-            if not source_exists or not target_exists:
-                logger.warning("Source or target node does not exist, cannot create edge")
-                return None
+                if not source_exists or not target_exists:
+                    logger.warning("Source or target node does not exist, cannot create edge")
+                    return None
 
-            # Check if edge already exists
-            edge_exists = await conn.fetchval(
-                "SELECT EXISTS(SELECT 1 FROM edges WHERE source_id = $1 AND target_id = $2)",
-                edge_data.get("sourceId"), edge_data.get("targetId"))
+                # Check if edge already exists
+                edge_exists = await conn.fetchval(
+                    "SELECT EXISTS(SELECT 1 FROM edges WHERE source_id = $1 AND target_id = $2)",
+                    edge_data.get("sourceId"), edge_data.get("targetId"))
 
-            if edge_exists:
-                logger.warning("Edge already exists, skipping creation")
-                return None
+                if edge_exists:
+                    logger.warning("Edge already exists, skipping creation")
+                    return None
 
-            metadata_json = json.dumps(edge_data.get("metadata", {}))
-            row = await conn.fetchrow(
-                "INSERT INTO edges (source_id, target_id, label, weight, metadata) VALUES ($1, $2, $3, $4, $5) RETURNING id, source_id, target_id, label, weight, metadata",
-                edge_data.get("sourceId"), edge_data.get("targetId"),
-                edge_data.get("label", "related_to"), edge_data.get("weight", 1),
-                metadata_json)
+                metadata_json = json.dumps(edge_data.get("metadata", {}))
+                row = await conn.fetchrow(
+                    "INSERT INTO edges (source_id, target_id, label, weight, metadata) VALUES ($1, $2, $3, $4, $5) RETURNING id, source_id, target_id, label, weight, metadata",
+                    edge_data.get("sourceId"), edge_data.get("targetId"),
+                    edge_data.get("label", "related_to"), edge_data.get("weight", 1),
+                    metadata_json)
 
-            edge = {
-                "id": row["id"],
-                "sourceId": row["source_id"],
-                "targetId": row["target_id"],
-                "label": row["label"],
-                "weight": row["weight"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
-            }
-            logger.info(f"Created new edge with ID {edge['id']}")
-            return edge
+                edge = {
+                    "id": row["id"],
+                    "sourceId": row["source_id"],
+                    "targetId": row["target_id"],
+                    "label": row["label"],
+                    "weight": row["weight"],
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
+                }
+                logger.info(f"Created new edge with ID {edge['id']}")
+                return edge
     except Exception as e:
         logger.error(f"Error creating edge: {str(e)}", exc_info=True)
         raise

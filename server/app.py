@@ -4,8 +4,10 @@ import pathlib
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import JSONResponse
 from typing import List
 from pydantic import BaseModel
+from contextlib import asynccontextmanager
 
 # Configure logging
 logging.basicConfig(
@@ -14,7 +16,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Knowledge Graph API")
+# Create directory structure
+os.makedirs("server/routes", exist_ok=True)
+os.makedirs("server/models", exist_ok=True)
+
+# Import database and graph manager after directory creation
+from server.database import init_db, cleanup_pool
+from server.graph_manager import graph_manager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle startup and shutdown events"""
+    try:
+        logger.info("Initializing database...")
+        await init_db()
+        logger.info("Database initialization complete")
+
+        logger.info("Initializing graph manager...")
+        await graph_manager.initialize()
+        logger.info("Graph manager initialization complete")
+
+        yield
+    except Exception as e:
+        logger.error(f"Startup error: {str(e)}", exc_info=True)
+        raise
+    finally:
+        logger.info("Cleaning up resources...")
+        await cleanup_pool()
+        logger.info("Cleanup complete")
+
+app = FastAPI(
+    title="Knowledge Graph API",
+    lifespan=lifespan
+)
 
 # Configure CORS
 app.add_middleware(
@@ -25,33 +59,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Create directory structure
-os.makedirs("server/routes", exist_ok=True)
-os.makedirs("server/models", exist_ok=True)
+# Import routes after database initialization
+from server.routes import graph, suggestions, websocket
 
-# Import routes after directory creation to avoid import errors
-from server.routes import graph, suggestions
-from server.database import init_db
-from server.graph_manager import graph_manager
-
-# Initialize database and graph manager
-@app.on_event("startup")
-async def startup():
-    try:
-        logger.info("Initializing database...")
-        await init_db()
-        logger.info("Database initialization complete")
-
-        logger.info("Initializing graph manager...")
-        await graph_manager.initialize()
-        logger.info("Graph manager initialization complete")
-    except Exception as e:
-        logger.error(f"Startup error: {str(e)}", exc_info=True)
-        raise
-
-# Include routers first, before static file mounting
+# Include routers
 app.include_router(graph.router)
 app.include_router(suggestions.router)
+app.include_router(websocket.router)
 
 # WebSocket connections store
 class ConnectionManager:
@@ -117,6 +131,19 @@ async def health_check():
     """Health check endpoint"""
     logger.info("Handling health check request")
     return {"status": "healthy"}
+
+# Error handling middleware
+@app.middleware("http")
+async def error_handling_middleware(request: Request, call_next):
+    try:
+        response = await call_next(request)
+        return response
+    except Exception as e:
+        logger.error(f"Unhandled error: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(e)}
+        )
 
 # Ensure frontend/dist directory exists
 frontend_path = pathlib.Path("frontend/dist")

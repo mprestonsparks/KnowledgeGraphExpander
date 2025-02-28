@@ -110,11 +110,11 @@ def calculate_metrics(G: nx.Graph) -> GraphMetrics:
     ]
     logger.info(f"Identified {len(bridging_nodes)} bridging nodes")
 
-    # Ensure all values are finite for JSON serialization
+    # Convert all node IDs to strings for consistency
     return GraphMetrics(
-        betweenness={int(k): float(v) for k, v in betweenness.items()},
-        eigenvector={int(k): float(v) for k, v in eigenvector.items()},
-        degree={int(k): int(v) for k, v in degree.items()},
+        betweenness={str(k): float(v) for k, v in betweenness.items()},
+        eigenvector={str(k): float(v) for k, v in eigenvector.items()},
+        degree={str(k): int(v) for k, v in degree.items()},
         scaleFreeness=ScaleFreeness(
             powerLawExponent=power_law_exp,
             fitQuality=fit_quality,

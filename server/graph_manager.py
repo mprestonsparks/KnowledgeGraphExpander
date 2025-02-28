@@ -7,8 +7,22 @@ from .models.schemas import (
 from .database import get_full_graph, create_node, create_edge
 from .semantic_clustering import SemanticClusteringService
 from .semantic_analysis import analyze_content
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class HubNode:
+    id: int
+    degree: int
+    influence: float
+
+@dataclass
+class BridgingNode:
+    id: int
+    communities: int
+    betweenness: float
+
 
 class GraphManager:
     def __init__(self):
@@ -82,11 +96,11 @@ class GraphManager:
             }
             edges.append(edge)
 
-        # Get clusters
-        clusters = await self.semantic_clustering.cluster_nodes()
+        # Get clusters - this is synchronous, no await needed
+        clusters = self.semantic_clustering.cluster_nodes()
 
-        # Get metrics
-        metrics = await self.calculate_metrics()
+        # Get metrics - this is synchronous, no await needed
+        metrics = self.calculate_metrics()
 
         return {
             "nodes": nodes,
@@ -95,8 +109,8 @@ class GraphManager:
             "metrics": metrics
         }
 
-    async def calculate_metrics(self):
-        """Calculate graph metrics"""
+    def calculate_metrics(self):
+        """Calculate graph metrics synchronously"""
         if self.graph.number_of_nodes() == 0:
             return {
                 "betweenness": {},
@@ -112,31 +126,51 @@ class GraphManager:
 
         # Calculate centrality metrics
         betweenness = nx.betweenness_centrality(self.graph)
-        eigenvector = nx.eigenvector_centrality_numpy(self.graph)
         degree = dict(self.graph.degree())
+
+        # Handle eigenvector centrality for disconnected graphs
+        try:
+            eigenvector = nx.eigenvector_centrality_numpy(self.graph)
+        except nx.AmbiguousSolution:
+            logger.warning("Graph is disconnected, using fallback eigenvector centrality")
+            eigenvector = {node: 0.0 for node in self.graph.nodes()}
+        except Exception as e:
+            logger.error(f"Error calculating eigenvector centrality: {str(e)}")
+            eigenvector = {node: 0.0 for node in self.graph.nodes()}
 
         # Calculate scale-freeness metrics
         degrees = [d for n, d in self.graph.degree()]
         power_law_exp = 2.1  # Simplified calculation
         fit_quality = 0.85   # Simplified calculation
 
-        # Identify hub and bridging nodes
+        # Identify hub nodes
+        mean_degree = sum(degrees) / len(degrees) if degrees else 0
         hub_nodes = [
-            {"id": node, "degree": deg, "influence": eigenvector.get(node, 0)}
+            HubNode(
+                id=int(node),
+                degree=deg,
+                influence=eigenvector.get(node, 0)
+            )
             for node, deg in degree.items()
-            if deg > sum(degrees) / len(degrees)
-        ]
+            if deg > mean_degree
+        ][:5]  # Limit to top 5 hub nodes
 
+        # Identify bridging nodes
+        mean_betweenness = sum(betweenness.values()) / len(betweenness) if betweenness else 0
         bridging_nodes = [
-            {"id": node, "communities": 2, "betweenness": bc}
+            BridgingNode(
+                id=int(node),
+                communities=len(list(self.graph.neighbors(node))),
+                betweenness=float(bc)
+            )
             for node, bc in betweenness.items()
-            if bc > sum(betweenness.values()) / len(betweenness)
-        ]
+            if bc > mean_betweenness
+        ][:5]  # Limit to top 5 bridging nodes
 
         return {
-            "betweenness": betweenness,
-            "eigenvector": eigenvector,
-            "degree": degree,
+            "betweenness": {str(k): float(v) for k, v in betweenness.items()},
+            "eigenvector": {str(k): float(v) for k, v in eigenvector.items()},
+            "degree": {str(k): int(v) for k, v in degree.items()},
             "scaleFreeness": {
                 "powerLawExponent": power_law_exp,
                 "fitQuality": fit_quality,
@@ -275,7 +309,9 @@ class GraphManager:
         """Recalculate graph clusters"""
         try:
             logger.info("Recalculating graph clusters")
+            # Initialize semantic clustering - synchronous operation
             self.semantic_clustering = SemanticClusteringService(self.graph)
+            # Return updated graph data
             return await self.get_graph_data()
         except Exception as e:
             logger.error(f"Error recalculating clusters: {str(e)}", exc_info=True)
