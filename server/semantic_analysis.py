@@ -1,8 +1,8 @@
+"""FastAPI semantic analysis module."""
 import os
 import logging
 import json
-import base64
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional
 from fastapi import HTTPException
 from anthropic import AsyncAnthropic
 
@@ -28,6 +28,7 @@ def is_valid_base64(str_val: str) -> bool:
         return False
 
     try:
+        import base64
         base64.b64decode(str_val)
         return True
     except:
@@ -66,14 +67,14 @@ async def analyze_content(content: Dict[str, Any], existing_nodes: Optional[List
 Important: Your response must be valid JSON in this exact format:
 {
   "nodes": [{ 
-    "label": string, 
-    "type": string, 
-    "metadata": { 
+    "label": string,
+    "type": string,
+    "metadata": {
       "description": string,
       "imageUrl"?: string,
       "imageDescription"?: string,
       "documentContext"?: string
-    } 
+    }
   }],
   "edges": [{ "sourceId": number, "targetId": number, "label": string, "weight": number }],
   "reasoning": string
@@ -122,6 +123,53 @@ Content to analyze:
                 system=system_prompt,
                 messages=[user_message]
             )
+
+            # Get the response text and ensure it's not empty
+            response_text = response.content[0].text.strip()
+            if not response_text:
+                logger.error("Empty response from Anthropic API")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Empty response from semantic analysis"
+                )
+
+            # Parse the response
+            try:
+                parsed_response = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse API response: {str(e)}\nResponse text: {response_text}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Invalid JSON response from semantic analysis"
+                )
+
+            # Validate response structure
+            required_fields = ["nodes", "edges", "reasoning"]
+            if not all(field in parsed_response for field in required_fields):
+                logger.error(f"Missing required fields in response: {parsed_response}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Incomplete response from semantic analysis"
+                )
+
+            # Add IDs to new nodes starting after the last existing node ID
+            last_node_id = max([0] + [n.get("id", 0) for n in existing_nodes])
+            nodes_with_ids = []
+
+            for i, node in enumerate(parsed_response.get("nodes", [])):
+                node_with_id = dict(node)
+                node_with_id["id"] = last_node_id + i + 1
+                nodes_with_ids.append(node_with_id)
+
+            result = {
+                "nodes": nodes_with_ids,
+                "edges": parsed_response.get("edges", []),
+                "reasoning": parsed_response.get("reasoning", "")
+            }
+
+            logger.info(f"Analysis complete with {len(result['nodes'])} nodes and {len(result['edges'])} edges")
+            return result
+
         except Exception as e:
             logger.error(f"Anthropic API error: {str(e)}")
             raise HTTPException(
@@ -129,45 +177,8 @@ Content to analyze:
                 detail=f"Error calling Anthropic API: {str(e)}"
             )
 
-        # Parse the response
-        try:
-            response_text = response.content[0].text
-            parsed_response = json.loads(response_text)
-        except (json.JSONDecodeError, AttributeError, IndexError) as e:
-            logger.error(f"Failed to parse API response: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail="Invalid response from semantic analysis"
-            )
-
-        # Validate response structure
-        required_fields = ["nodes", "edges", "reasoning"]
-        if not all(field in parsed_response for field in required_fields):
-            raise HTTPException(
-                status_code=500,
-                detail="Incomplete response from semantic analysis"
-            )
-
-        # Add IDs to new nodes starting after the last existing node ID
-        last_node_id = max([0] + [n.get("id", 0) for n in existing_nodes])
-        nodes_with_ids = []
-
-        for i, node in enumerate(parsed_response.get("nodes", [])):
-            node_with_id = dict(node)
-            node_with_id["id"] = last_node_id + i + 1
-            nodes_with_ids.append(node_with_id)
-
-        result = {
-            "nodes": nodes_with_ids,
-            "edges": parsed_response.get("edges", []),
-            "reasoning": parsed_response.get("reasoning", "")
-        }
-
-        logger.info(f"Analysis complete with {len(result['nodes'])} nodes and {len(result['edges'])} edges")
-        return result
-
     except HTTPException:
-        raise  # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f'Semantic analysis failed: {str(e)}', exc_info=True)
         raise HTTPException(

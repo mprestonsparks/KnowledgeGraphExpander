@@ -67,11 +67,10 @@ async def get_pool() -> Pool:
                 min_size=2,
                 max_size=10,
                 command_timeout=60,
-                loop=asyncio.get_running_loop(),  # Use current event loop
                 init=init_connection,
                 server_settings={
-                    'application_name': 'knowledge_graph',  # For connection tracking
-                    'statement_timeout': '60s'  # Global statement timeout
+                    'application_name': 'knowledge_graph',
+                    'statement_timeout': '60s'
                 }
             )
             if pool:
@@ -92,18 +91,36 @@ async def init_connection(conn: asyncpg.Connection):
         schema='pg_catalog'
     )
 
-@asynccontextmanager
 async def get_connection():
     """Get a database connection from the pool with error handling"""
     if pool is None:
         await get_pool()
     try:
-        async with pool.acquire() as connection:
-            async with connection.transaction():
-                yield connection
+        connection = await pool.acquire()
+        await connection.execute('SELECT 1')  # Verify connection is active
+        return connection
     except Exception as e:
         logger.error(f"Database connection error: {str(e)}", exc_info=True)
         raise
+
+async def return_connection(connection):
+    """Return a connection to the pool"""
+    try:
+        await pool.release(connection)
+    except Exception as e:
+        logger.error(f"Error returning connection to pool: {str(e)}", exc_info=True)
+        raise
+
+@asynccontextmanager
+async def get_db():
+    """Context manager for database connections"""
+    connection = None
+    try:
+        connection = await get_connection()
+        yield connection
+    finally:
+        if connection:
+            await return_connection(connection)
 
 async def cleanup_pool():
     """Cleanup the database connection pool"""
@@ -123,7 +140,7 @@ async def cleanup_pool():
 async def get_node(node_id: int):
     """Get a node by ID"""
     try:
-        async with get_connection() as conn:
+        async with get_db() as conn:
             row = await conn.fetchrow("SELECT * FROM nodes WHERE id = $1", node_id)
             if row:
                 return {
@@ -141,7 +158,7 @@ async def get_node(node_id: int):
 async def create_node(node_data):
     """Create a node"""
     try:
-        async with get_connection() as conn:
+        async with get_db() as conn:
             row = await conn.fetchrow(
                 """
                 INSERT INTO nodes (label, type, metadata)
@@ -168,7 +185,7 @@ async def create_node(node_data):
 async def create_edge(edge_data):
     """Create an edge"""
     try:
-        async with get_connection() as conn:
+        async with get_db() as conn:
             # Check if nodes exist
             source_exists = await conn.fetchval(
                 "SELECT EXISTS(SELECT 1 FROM nodes WHERE id = $1)",
@@ -181,22 +198,6 @@ async def create_edge(edge_data):
 
             if not source_exists or not target_exists:
                 logger.warning("Source or target node does not exist")
-                return None
-
-            # Check if edge already exists
-            edge_exists = await conn.fetchval(
-                """
-                SELECT EXISTS(
-                    SELECT 1 FROM edges 
-                    WHERE source_id = $1 AND target_id = $2
-                )
-                """,
-                edge_data.get("sourceId"),
-                edge_data.get("targetId")
-            )
-
-            if edge_exists:
-                logger.warning("Edge already exists")
                 return None
 
             row = await conn.fetchrow(
@@ -230,7 +231,7 @@ async def get_full_graph():
     """Get the full graph data"""
     try:
         logger.info("Retrieving full graph data")
-        async with get_connection() as conn:
+        async with get_db() as conn:
             # Get all nodes
             nodes = []
             rows = await conn.fetch("SELECT * FROM nodes")
@@ -264,7 +265,7 @@ async def get_full_graph():
 async def get_all_nodes():
     """Get all nodes"""
     try:
-        async with get_connection() as conn:
+        async with get_db() as conn:
             rows = await conn.fetch("SELECT * FROM nodes")
             nodes = []
             for row in rows:
@@ -283,7 +284,7 @@ async def get_all_nodes():
 async def get_edge(edge_id: int):
     """Get an edge by ID"""
     try:
-        async with get_connection() as conn:
+        async with get_db() as conn:
             row = await conn.fetchrow("SELECT * FROM edges WHERE id = $1", edge_id)
             if row:
                 return {
@@ -303,7 +304,7 @@ async def get_edge(edge_id: int):
 async def get_all_edges():
     """Get all edges"""
     try:
-        async with get_connection() as conn:
+        async with get_db() as conn:
             rows = await conn.fetch("SELECT * FROM edges")
             edges = []
             for row in rows:
