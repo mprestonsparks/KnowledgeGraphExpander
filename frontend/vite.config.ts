@@ -26,6 +26,15 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true
+    sourcemap: true,
+    assetsDir: 'assets',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', '@tanstack/react-query'],
+          graph: ['cytoscape', 'react-cytoscapejs']
+        }
+      }
+    }
   }
 });

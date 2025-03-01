@@ -19,6 +19,9 @@ run_test_module() {
     echo "----------------------------------------" >> "$log_file"
 
     case $module_name in
+        "frontend")
+            cd frontend && timeout 120 npm run test:coverage >> "$log_file" 2>&1
+            ;;
         "database")
             timeout 60 python -m pytest tests/test_database.py -v >> "$log_file" 2>&1
             ;;
@@ -63,7 +66,7 @@ read_previous_summary() {
 
 # Main test execution
 main() {
-    local test_modules=("database" "graph" "api" "integration")
+    local test_modules=("frontend" "database" "graph" "api" "integration")
     local failed_modules=()
     local timeout_modules=()
 
