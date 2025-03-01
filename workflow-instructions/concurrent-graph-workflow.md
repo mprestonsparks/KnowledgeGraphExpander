@@ -3,16 +3,7 @@
 ## Task 1: Database Setup (Sequential)
 Command: Execute Shell Command
 ```bash
-python3 -c "
-import asyncio
-from server.database import init_db, cleanup_pool
-
-async def setup_db():
-    await init_db()
-    print('Database initialized.')
-
-asyncio.run(setup_db())
-"
+python3 scripts/db_setup.py
 ```
 
 ## Task 2: API Service (Parallel)
@@ -24,39 +15,13 @@ uvicorn server.app:app --host 0.0.0.0 --port 8080 --reload
 ## Task 3: Graph Manager Service (Parallel)
 Command: Execute Shell Command
 ```bash
-python3 -c "
-import asyncio
-from server.graph_manager import graph_manager
-
-async def run_service():
-    await graph_manager.initialize()
-    print('Graph manager initialized')
-    while True:
-        await asyncio.sleep(1)
-
-asyncio.run(run_service())
-"
+python3 scripts/graph_manager_service.py
 ```
 
 ## Task 4: Connection Pool Manager (Parallel)
 Command: Execute Shell Command
 ```bash
-python3 -c "
-import asyncio
-from server.database import get_pool, cleanup_pool
-
-async def manage_pool():
-    pool = await get_pool()
-    print('Connection pool manager initialized')
-    try:
-        while True:
-            await asyncio.sleep(5)
-            print(f'Active connections: {len(pool._holders)}')
-    finally:
-        await cleanup_pool()
-
-asyncio.run(manage_pool())
-"
+python3 scripts/connection_pool_manager.py
 ```
 
 ## Configuration:
@@ -79,22 +44,22 @@ asyncio.run(manage_pool())
 2. Add Tasks:
    a. Database Initialization (Sequential)
    - Task Type: Execute Shell Command
-   - Command: [Database Init Script] (See Task 1 above)
+   - Command: python3 scripts/db_setup.py
    - Must complete before other tasks start
 
    b. Graph Manager Service (Parallel)
    - Task Type: Execute Shell Command
-   - Command: [Graph Manager Script] (See Task 3 above)
+   - Command: python3 scripts/graph_manager_service.py
    - Runs after database initialization
 
    c. API Service (Parallel)
    - Task Type: Execute Shell Command
-   - Command: [API Service Command] (See Task 2 above)
+   - Command: uvicorn server.app:app --host 0.0.0.0 --port 8080 --reload
    - Runs after database initialization
 
    d. Connection Pool Manager (Parallel)
    - Task Type: Execute Shell Command
-   - Command: [Pool Manager Script] (See Task 4 above)
+   - Command: python3 scripts/connection_pool_manager.py
    - Runs after database initialization
 
 3. Resource Management:
