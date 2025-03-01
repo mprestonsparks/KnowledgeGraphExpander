@@ -1,6 +1,6 @@
 import { ReactElement } from 'react';
 import { render as rtlRender } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { createTestQueryClient } from './setup';
 
 interface WrapperProps {

@@ -25,8 +25,13 @@ describe('WebSocketClient', () => {
       close: vi.fn(),
     };
 
-    // Mock WebSocket constructor
-    global.WebSocket = vi.fn().mockImplementation(() => mockWebSocket);
+    // Mock WebSocket constructor with required static properties
+    const MockWebSocket = vi.fn().mockImplementation(() => mockWebSocket);
+    MockWebSocket.CONNECTING = 0;
+    MockWebSocket.OPEN = 1;
+    MockWebSocket.CLOSING = 2;
+    MockWebSocket.CLOSED = 3;
+    global.WebSocket = MockWebSocket;
 
     wsClient = new WebSocketClient();
   });
@@ -56,8 +61,7 @@ describe('WebSocketClient', () => {
           hubNodes: [{ id: 1, degree: 2, influence: 0.8 }],
           bridgingNodes: [{ id: 2, communities: 2, betweenness: 0.7 }]
         }
-      },
-      clusters: []
+      }
     };
 
     wsClient.connect();

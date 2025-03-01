@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
-import type { Core, ElementDefinition, LayoutOptions } from "cytoscape";
+import type { Core, ElementDefinition, CoseLayoutOptions } from "cytoscape";
 import { type GraphData } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { RefreshCcw } from "lucide-react";
@@ -11,13 +11,12 @@ interface GraphViewerProps {
   onSelect?: (nodeId: string) => void;
 }
 
-const layoutConfig: LayoutOptions = {
+const layoutConfig: Partial<CoseLayoutOptions> = {
   name: "cose",
   nodeDimensionsIncludeLabels: true,
   refresh: 20,
-  fit: true,
   padding: 30,
-  nodeRepulsion: 4500,
+  nodeRepulsion: () => 4500,
   nodeOverlap: 20,
   idealEdgeLength: 100,
   gravity: 0.25,
@@ -161,8 +160,11 @@ export function GraphViewer({ data, onSelect }: GraphViewerProps) {
     // Add all elements at once
     cy.add([...nodeElements, ...edgeElements]);
 
-    // Apply layout
-    const layout = cy.layout(layoutConfig);
+    // Apply layout with proper typing
+    const layout = cy.layout({
+      ...layoutConfig,
+      fit: true
+    } as CoseLayoutOptions);
 
     // Log final state after layout
     layout.one('layoutstop', () => {
@@ -217,11 +219,11 @@ export function GraphViewer({ data, onSelect }: GraphViewerProps) {
           }
         });
 
-        // Apply incremental layout
+        // Apply incremental layout with proper typing
         const layout = cy.layout({
           ...layoutConfig,
           fit: false
-        });
+        } as CoseLayoutOptions);
 
         layout.run();
       }
@@ -264,7 +266,7 @@ export function GraphViewer({ data, onSelect }: GraphViewerProps) {
       <CytoscapeComponent
         elements={[]}
         stylesheet={styleSheet}
-        layout={layoutConfig}
+        layout={layoutConfig as CoseLayoutOptions}
         cy={(cy) => {
           cyRef.current = cy;
         }}

@@ -277,8 +277,7 @@ const SidebarTrigger = React.forwardRef<
       }}
       {...props}
     >
-      {/* @ts-expect-error - Known issue with Lucide types */}
-      <PanelLeft />
+      <PanelLeft className="h-4 w-4" />
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   )
