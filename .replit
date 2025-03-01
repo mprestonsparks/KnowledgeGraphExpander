@@ -154,25 +154,25 @@ mode = "parallel"
 author = 39844550
 
 [[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "run graph manager service"
+task = "shell.exec"
+args = "python3 scripts/run_api.py"
 
 [[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "load API service"
+task = "shell.exec"
+args = "python3 scripts/run_graph_manager.py"
 
 [[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "run connection pool manager"
+task = "shell.exec"
+args = "python3 scripts/run_pool_manager.py"
 
 [[workflows.workflow]]
-name = "run Concurrent Graph Analysis"
+name = "Concurrent Graph Analysis"
 mode = "sequential"
 author = 39844550
 
 [[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "database setup"
+task = "shell.exec"
+args = "python3 scripts/init_db.py"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
