@@ -3,10 +3,11 @@ import logging
 import json
 from typing import List
 from ..graph_manager import graph_manager
+import ssl
+import os
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
 
 # WebSocket connections store
 class ConnectionManager:
@@ -15,9 +16,13 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info("Client connected")
+        try:
+            await websocket.accept()
+            self.active_connections.append(websocket)
+            logger.info("Client connected via secure WebSocket")
+        except Exception as e:
+            logger.error(f"WebSocket connection error: {str(e)}")
+            raise
 
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
@@ -34,15 +39,12 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-
 # Set up callback for graph updates
 async def on_graph_update(graph_data):
     await manager.broadcast_json(graph_data)
 
-
 # Register the callback
 graph_manager.set_on_update_callback(on_graph_update)
-
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

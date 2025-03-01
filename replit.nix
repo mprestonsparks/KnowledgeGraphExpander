@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.cacert
     pkgs.jq
     pkgs.glibcLocales
     pkgs.xsimd
