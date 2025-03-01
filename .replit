@@ -1,4 +1,4 @@
-modules = ["python-3.11", "nodejs-20", "python3"]
+modules = ["python-3.11", "nodejs-20", "python3", "postgresql-16"]
 
 # This builds the frontend and starts the Python backend
 run = "bash -c 'cd frontend && npm install && npm run build && cd .. && python main.py'"
@@ -119,7 +119,7 @@ author = 39844550
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python -c 'import asyncio; from server.database import init_db, cleanup_pool; async def setup_db(): await init_db(); print(\"Database initialized.\"); asyncio.run(setup_db())'"
+args = "python3 scripts/db_setup.py"
 
 [[workflows.workflow]]
 name = "run graph manager service"
@@ -128,7 +128,7 @@ author = 39844550
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python -c \" import asyncio from server.graph_manager import graph_manager  async def run_service():     await graph_manager.initialize()     print('Graph manager initialized')     # Keep service running     while True:         await asyncio.sleep(1)  asyncio.run(run_service()) \""
+args = "python3 scripts/graph_manager_service.py"
 
 [[workflows.workflow]]
 name = "load API service"
@@ -146,7 +146,7 @@ author = 39844550
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python -c 'import asyncio; from server.database import get_pool, cleanup_pool; async def manage_pool(): pool = await get_pool(); print(\"Connection pool manager initialized\"); try: while True: await asyncio.sleep(5); print(f\"Active connections: {len(pool._holders)}\"); finally: await cleanup_pool(); asyncio.run(manage_pool())'"
+args = "python3 scripts/connection_pool_manager.py"
 
 [[workflows.workflow]]
 name = "Concurrent Graph Analysis (Parallel)"
