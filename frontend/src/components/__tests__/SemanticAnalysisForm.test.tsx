@@ -22,9 +22,9 @@ describe('SemanticAnalysisForm', () => {
 
     render(<SemanticAnalysisForm onSuccess={mockOnSuccess} />);
 
-    const textInput = screen.getByLabelText(/enter text/i);
+    const textInput = screen.getByPlaceholderText(/enter text to analyze/i);
     await user.type(textInput, 'Test content for analysis');
-    
+
     const submitButton = screen.getByRole('button', { name: /analyze/i });
     await user.click(submitButton);
 
@@ -53,9 +53,9 @@ describe('SemanticAnalysisForm', () => {
 
     render(<SemanticAnalysisForm onSuccess={mockOnSuccess} />);
 
-    const textInput = screen.getByLabelText(/enter text/i);
+    const textInput = screen.getByPlaceholderText(/enter text to analyze/i);
     await user.type(textInput, 'Test content');
-    
+
     const submitButton = screen.getByRole('button', { name: /analyze/i });
     await user.click(submitButton);
 
@@ -68,9 +68,9 @@ describe('SemanticAnalysisForm', () => {
 
     render(<SemanticAnalysisForm onSuccess={mockOnSuccess} />);
 
-    const textInput = screen.getByLabelText(/enter text/i);
+    const textInput = screen.getByPlaceholderText(/enter text to analyze/i);
     await user.type(textInput, 'Test content');
-    
+
     const submitButton = screen.getByRole('button', { name: /analyze/i });
     await user.click(submitButton);
 
