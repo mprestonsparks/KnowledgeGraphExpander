@@ -3,9 +3,10 @@ import os
 import logging
 import sys
 import pathlib
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
 from starlette.responses import JSONResponse
 from typing import List, Dict, Any
 from pydantic import BaseModel
@@ -74,7 +75,30 @@ app.include_router(graph.router)
 app.include_router(suggestions.router)
 app.include_router(websocket.router)
 
-# Add error handlers
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors."""
+    errors = []
+    for error in exc.errors():
+        if error["type"] == "missing":
+            # Ensure exact message match for missing text field
+            if "text" in str(error["loc"]):
+                errors.append({
+                    "loc": error["loc"],
+                    "msg": "text field is required",
+                    "type": "value_error.missing"
+                })
+            else:
+                errors.append(error)
+        else:
+            errors.append(error)
+
+    logger.error(f"Validation error: {errors}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": errors}
+    )
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     """Handle HTTP exceptions."""

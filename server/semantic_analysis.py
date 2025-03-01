@@ -3,7 +3,7 @@ import os
 import logging
 import json
 from typing import Dict, List, Any, Optional
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from anthropic import AsyncAnthropic
 
 logger = logging.getLogger(__name__)
@@ -38,18 +38,24 @@ async def analyze_content(content: Dict[str, Any], existing_nodes: Optional[List
     """Analyze content and extract knowledge graph elements"""
     try:
         if not content:
-            raise HTTPException(status_code=400, detail="Content cannot be empty")
+            raise HTTPException(
+                status_code=400,
+                detail=[{"loc": ["body"], "msg": "Content cannot be empty", "type": "value_error"}]
+            )
 
-        if not content.get("text"):
-            raise HTTPException(status_code=400, detail="Text content is required")
+        if "text" not in content:
+            raise HTTPException(
+                status_code=400,
+                detail=[{"loc": ["body", "text"], "msg": "text field is required", "type": "value_error.missing"}]
+            )
 
         if len(content["text"]) > 50000:  # Add reasonable limit
-            raise HTTPException(status_code=400, detail="Text content exceeds maximum length")
+            raise HTTPException(
+                status_code=400, 
+                detail="Text content exceeds maximum length"
+            )
 
-        if existing_nodes is None:
-            existing_nodes = []
-
-        # Validate image data if present
+        # Validate image data first - before API key check
         if content.get("images"):
             for image in content["images"]:
                 if not isinstance(image, dict) or "data" not in image or "type" not in image:
@@ -57,12 +63,20 @@ async def analyze_content(content: Dict[str, Any], existing_nodes: Optional[List
                 if not is_valid_base64(image.get("data", "")):
                     raise HTTPException(status_code=400, detail="Invalid image data format")
 
-        # Check for API key
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            raise HTTPException(status_code=500, detail="Anthropic API key not configured")
+        if existing_nodes is None:
+            existing_nodes = []
 
-        # Prepare system prompt
-        system_prompt = """You are a semantic analysis expert. Analyze the following content and extract knowledge graph elements.
+        # Check API key after validation
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            logger.error("API key not configured")
+            raise HTTPException(status_code=500, detail="API key not configured")
+
+        # Call the Anthropic API
+        try:
+            response = await anthropic_client.messages.create(
+                model="claude-3-7-sonnet-20250219",
+                max_tokens=1024,
+                system="""You are a semantic analysis expert. Analyze the following content and extract knowledge graph elements.
 
 Important: Your response must be valid JSON in this exact format:
 {
@@ -86,45 +100,18 @@ Rules:
 3. Edge weights should be between 0 and 1
 4. Include semantic reasoning about why these connections were made
 5. For image nodes, include descriptions and visual context
-6. Response must be pure JSON - no explanation text before or after"""
-
-        # Prepare user message
-        user_message = {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"""Existing nodes:
+6. Response must be pure JSON - no explanation text before or after""",
+                messages=[{
+                    "role": "user",
+                    "content": f"""Existing nodes:
 {json.dumps(existing_nodes, indent=2)}
 
 Content to analyze:
 {content.get("text", "")}"""
-                }
-            ]
-        }
-
-        # Add images if present
-        if content.get("images"):
-            for image in content["images"]:
-                user_message["content"].append({
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": image.get("type", "image/jpeg"),
-                        "data": image["data"]
-                    }
-                })
-
-        try:
-            # Call the Anthropic API
-            response = await anthropic_client.messages.create(
-                model="claude-3-7-sonnet-20250219",
-                max_tokens=1024,
-                system=system_prompt,
-                messages=[user_message]
+                }]
             )
 
-            # Get the response text and ensure it's not empty
+            # Parse the response
             response_text = response.content[0].text.strip()
             if not response_text:
                 logger.error("Empty response from Anthropic API")
@@ -133,7 +120,6 @@ Content to analyze:
                     detail="Empty response from semantic analysis"
                 )
 
-            # Parse the response
             try:
                 parsed_response = json.loads(response_text)
             except json.JSONDecodeError as e:
@@ -152,7 +138,7 @@ Content to analyze:
                     detail="Incomplete response from semantic analysis"
                 )
 
-            # Add IDs to new nodes starting after the last existing node ID
+            # Add IDs to new nodes
             last_node_id = max([0] + [n.get("id", 0) for n in existing_nodes])
             nodes_with_ids = []
 
@@ -174,17 +160,15 @@ Content to analyze:
             logger.error(f"Anthropic API error: {str(e)}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Error calling Anthropic API: {str(e)}"
+                detail="Error calling Anthropic API"
             )
 
     except HTTPException:
         raise
+
     except Exception as e:
         logger.error(f'Semantic analysis failed: {str(e)}', exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error during semantic analysis: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 async def validate_relationships(source_node: Dict[str, Any], target_nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Validate relationships between nodes"""
@@ -194,8 +178,10 @@ async def validate_relationships(source_node: Dict[str, Any], target_nodes: List
         raise ValueError("Invalid target nodes")
 
     try:
-        # Prepare system prompt
-        system_prompt = """You are a semantic relationship validator. Analyze the connections between the source node and target nodes.
+        response = await anthropic_client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1024,
+            system="""You are a semantic relationship validator. Analyze the connections between the source node and target nodes.
 
 Important: Your response must be valid JSON in this exact format:
 {
@@ -207,10 +193,10 @@ Rules:
 1. Each confidence score should be between 0 and 1
 2. Higher scores indicate stronger semantic relationships
 3. Include reasoning about relationship validity
-4. Response must be pure JSON - no explanation text before or after"""
-
-        # Prepare user message
-        user_message = f"""
+4. Response must be pure JSON - no explanation text before or after""",
+            messages=[{
+                "role": "user",
+                "content": f"""
 Source Node:
 {json.dumps(source_node, indent=2)}
 
@@ -219,15 +205,6 @@ Target Nodes:
 
 Analyze the semantic coherence and validity of relationships between the source node and each target node.
 """
-
-        # Call the Anthropic API
-        response = await anthropic_client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1024,
-            system=system_prompt,
-            messages=[{
-                "role": "user",
-                "content": user_message
             }]
         )
 

@@ -2,7 +2,7 @@
 import pytest
 import asyncio
 import logging
-from fastapi.testclient import TestClient
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -14,6 +14,23 @@ logger = logging.getLogger(__name__)
 # Store session-level resources
 _pool = None
 _app = None
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_env():
+    """Setup test environment variables."""
+    # Store original API key
+    original_api_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    # Set dummy API key for tests
+    os.environ["ANTHROPIC_API_KEY"] = "dummy-test-key-sk-ant-api03-valid-looking-key-2024"
+
+    yield
+
+    # Restore original API key after tests
+    if original_api_key:
+        os.environ["ANTHROPIC_API_KEY"] = original_api_key
+    else:
+        del os.environ["ANTHROPIC_API_KEY"]
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -86,6 +103,7 @@ def test_client(event_loop, test_app):
     logger.info("Creating test client")
 
     # Create test client in the same event loop context
+    from fastapi.testclient import TestClient
     client = TestClient(test_app)
     return client
 
