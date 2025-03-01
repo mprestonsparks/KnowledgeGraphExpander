@@ -44,6 +44,7 @@ pattern = "**/*.{js,jsx}"
 syntax = "javascript"
 
 [workflows]
+runButton = "database setup"
 
 [[workflows.workflow]]
 name = "parallel tasks"
@@ -118,7 +119,7 @@ author = 39844550
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python -c \" import asyncio from server.database import init_db, cleanup_pool  async def setup_db():     await init_db()     print('Database initialized.')  asyncio.run(setup_db()) \""
+args = "python -c 'import asyncio; from server.database import init_db, cleanup_pool; async def setup_db(): await init_db(); print(\"Database initialized.\"); asyncio.run(setup_db())'"
 
 [[workflows.workflow]]
 name = "run graph manager service"
@@ -145,7 +146,7 @@ author = 39844550
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "python -c \" import asyncio from server.database import get_pool, cleanup_pool  async def manage_pool():     pool = await get_pool()     print('Connection pool manager initialized')     try:         while True:             await asyncio.sleep(5)             # Monitor pool health             print(f'Active connections: {len(pool._holders)}')     finally:         await cleanup_pool()  asyncio.run(manage_pool()) \""
+args = "python -c 'import asyncio; from server.database import get_pool, cleanup_pool; async def manage_pool(): pool = await get_pool(); print(\"Connection pool manager initialized\"); try: while True: await asyncio.sleep(5); print(f\"Active connections: {len(pool._holders)}\"); finally: await cleanup_pool(); asyncio.run(manage_pool())'"
 
 [[workflows.workflow]]
 name = "Concurrent Graph Analysis (Parallel)"

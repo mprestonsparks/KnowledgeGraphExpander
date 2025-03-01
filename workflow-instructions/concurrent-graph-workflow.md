@@ -1,14 +1,9 @@
 # Concurrent Graph Analysis Workflow Configuration
 
-## Overview
-This configuration manages the execution of graph analysis operations with proper handling of async resources, database connections, and event loops.
-
-## Key Components
-
-### 1. Database Initialization (Sequential)
-Must run first and complete before any other tasks:
+## Task 1: Database Setup (Sequential)
+Command: Execute Shell Command
 ```bash
-python -c "
+python3 -c "
 import asyncio
 from server.database import init_db, cleanup_pool
 
@@ -20,19 +15,22 @@ asyncio.run(setup_db())
 "
 ```
 
-### 2. Main Services (Parallel)
-These services run concurrently after database initialization:
-
-#### A. Graph Manager Service
+## Task 2: API Service (Parallel)
+Command: Execute Shell Command
 ```bash
-python -c "
+uvicorn server.app:app --host 0.0.0.0 --port 8080 --reload
+```
+
+## Task 3: Graph Manager Service (Parallel)
+Command: Execute Shell Command
+```bash
+python3 -c "
 import asyncio
 from server.graph_manager import graph_manager
 
 async def run_service():
     await graph_manager.initialize()
     print('Graph manager initialized')
-    # Keep service running
     while True:
         await asyncio.sleep(1)
 
@@ -40,14 +38,10 @@ asyncio.run(run_service())
 "
 ```
 
-#### B. API Service
+## Task 4: Connection Pool Manager (Parallel)
+Command: Execute Shell Command
 ```bash
-uvicorn server.app:app --host 0.0.0.0 --port 8080 --reload
-```
-
-#### C. Connection Pool Manager
-```bash
-python -c "
+python3 -c "
 import asyncio
 from server.database import get_pool, cleanup_pool
 
@@ -57,7 +51,6 @@ async def manage_pool():
     try:
         while True:
             await asyncio.sleep(5)
-            # Monitor pool health
             print(f'Active connections: {len(pool._holders)}')
     finally:
         await cleanup_pool()
@@ -66,8 +59,19 @@ asyncio.run(manage_pool())
 "
 ```
 
-## Workflow Configuration Steps
+## Configuration:
+1. Task 1 runs first sequentially
+2. Tasks 2-4 run in parallel after Task 1 completes
+3. All tasks use proper event loop handling
+4. Long-running tasks are configured with appropriate timeouts
 
+## Success Verification:
+1. Database initialization message appears
+2. Uvicorn server starts on port 8080
+3. Graph manager shows "initialized" message
+4. Pool manager reports active connections
+
+## Workflow Configuration Steps
 1. Create New Workflow
    - Name: "Concurrent Graph Analysis"
    - Description: "Manages concurrent graph operations with proper async resource handling"
@@ -75,22 +79,22 @@ asyncio.run(manage_pool())
 2. Add Tasks:
    a. Database Initialization (Sequential)
    - Task Type: Execute Shell Command
-   - Command: [Database Init Script]
+   - Command: [Database Init Script] (See Task 1 above)
    - Must complete before other tasks start
 
    b. Graph Manager Service (Parallel)
    - Task Type: Execute Shell Command
-   - Command: [Graph Manager Script]
+   - Command: [Graph Manager Script] (See Task 3 above)
    - Runs after database initialization
 
    c. API Service (Parallel)
    - Task Type: Execute Shell Command
-   - Command: [API Service Command]
+   - Command: [API Service Command] (See Task 2 above)
    - Runs after database initialization
 
    d. Connection Pool Manager (Parallel)
    - Task Type: Execute Shell Command
-   - Command: [Pool Manager Script]
+   - Command: [Pool Manager Script] (See Task 4 above)
    - Runs after database initialization
 
 3. Resource Management:
@@ -163,12 +167,14 @@ asyncio.run(manage_pool())
    - Verify cleanup execution
 
 ## Benefits
+
 - Isolated event loops prevent conflicts
 - Controlled resource management
 - Automatic error recovery
 - Proper async context handling
 
 ## Additional Notes
+
 1. Test Execution:
    - Run tests only after services are stable
    - Monitor event loop usage during tests
