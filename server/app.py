@@ -1,6 +1,7 @@
 """FastAPI application setup with GraphQL and REST endpoints."""
 import os
 import logging
+import sys
 import pathlib
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,10 +11,11 @@ from typing import List, Dict, Any
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
-# Configure logging
+# Configure logging with more detailed format
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,7 @@ class ErrorResponse(BaseModel):
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events"""
     try:
+        logger.info("Starting FastAPI application on port 5000...")
         logger.info("Initializing database...")
         await init_db()
         logger.info("Database initialization complete")
