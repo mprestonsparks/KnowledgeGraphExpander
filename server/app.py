@@ -20,6 +20,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Import routes and dependencies
+from server.routes import graph, suggestions, websocket
+from server.database import init_db, cleanup_pool
+from server.graph_manager import graph_manager
+
 class ContentAnalysisRequest(BaseModel):
     """Request model for content analysis."""
     text: str
@@ -33,7 +38,7 @@ class ErrorResponse(BaseModel):
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events"""
     try:
-        logger.info("Starting FastAPI application on port 5000...")
+        logger.info("Starting FastAPI application...")
         logger.info("Initializing database...")
         await init_db()
         logger.info("Database initialization complete")
@@ -65,23 +70,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Import routes
-from server.routes import graph, suggestions, websocket
-from server.database import init_db, cleanup_pool
-from server.graph_manager import graph_manager
-
-# Include routers
-app.include_router(graph.router)
-app.include_router(suggestions.router)
-app.include_router(websocket.router)
-
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors."""
     errors = []
     for error in exc.errors():
         if error["type"] == "missing":
-            # Ensure exact message match for missing text field
             if "text" in str(error["loc"]):
                 errors.append({
                     "loc": error["loc"],
@@ -116,6 +110,49 @@ async def general_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Internal server error"}
     )
+
+# Include API routers first
+app.include_router(graph.router)
+app.include_router(suggestions.router)
+app.include_router(websocket.router)
+
+# Define API endpoints
+@app.get("/api")
+async def root():
+    """Root endpoint that provides API information"""
+    logger.info("Handling request to API root endpoint")
+    return {
+        "message": "Knowledge Graph API Server",
+        "version": "1.0",
+        "endpoints": {
+            "/api": "This information",
+            "/api/health": "Health check",
+            "/api/graph": "Graph data and operations",
+            "/api/graph/analyze": "Content analysis endpoint",
+            "/api/graph/suggestions": "Graph relationship suggestions",
+            "/ws": "WebSocket endpoint for real-time updates"
+        }
+    }
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint"""
+    logger.info("Handling health check request")
+    return {"status": "healthy"}
+
+@app.post("/api/graph/analyze", response_model=Dict[str, Any], responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
+async def analyze_content_endpoint(request: ContentAnalysisRequest):
+    """Content analysis endpoint."""
+    try:
+        from server.semantic_analysis import analyze_content
+        result = await analyze_content(request.dict(), [])
+        return result
+    except HTTPException as http_ex:
+        logger.error(f"HTTP error in analyze_content: {http_ex.detail}")
+        raise
+    except Exception as e:
+        logger.error(f"Error in analyze_content: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # WebSocket connections store
 class ConnectionManager:
@@ -160,45 +197,13 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         manager.disconnect(websocket)
 
-@app.get("/")
-async def root():
-    """Root endpoint that provides API information"""
-    logger.info("Handling request to root endpoint")
-    return {
-        "message": "Knowledge Graph API Server",
-        "version": "1.0",
-        "endpoints": {
-            "/": "This information",
-            "/health": "Health check",
-            "/api/graph": "Graph data and operations",
-            "/api/graph/analyze": "Content analysis endpoint",
-            "/api/graph/suggestions": "Graph relationship suggestions",
-            "/ws": "WebSocket endpoint for real-time updates"
-        }
-    }
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    logger.info("Handling health check request")
-    return {"status": "healthy"}
-
-# Register analyze_content endpoint
-@app.post("/api/graph/analyze", response_model=Dict[str, Any], responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
-async def analyze_content_endpoint(request: ContentAnalysisRequest):
-    """Content analysis endpoint."""
-    try:
-        from server.semantic_analysis import analyze_content
-        result = await analyze_content(request.dict(), [])
-        return result
-    except HTTPException as http_ex:
-        logger.error(f"HTTP error in analyze_content: {http_ex.detail}")
-        raise
-    except Exception as e:
-        logger.error(f"Error in analyze_content: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-# Mount static files
-app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
+# Mount static files last to avoid conflicts with API routes
+# Check if frontend/dist exists before mounting
+dist_path = pathlib.Path(__file__).parent.parent / "frontend" / "dist"
+if dist_path.exists():
+    app.mount("/", StaticFiles(directory=str(dist_path), html=True), name="frontend")
+    logger.info(f"Mounted frontend static files from {dist_path}")
+else:
+    logger.warning("Frontend build directory not found. Static files will not be served.")
 
 logger.info("FastAPI application setup complete")

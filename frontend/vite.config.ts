@@ -28,13 +28,18 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
     assetsDir: 'assets',
+    manifest: true, // Generate manifest for asset mapping
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', '@tanstack/react-query'],
           graph: ['cytoscape', 'react-cytoscapejs']
-        }
+        },
+        assetFileNames: 'assets/[name]-[hash][extname]',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js'
       }
     }
-  }
+  },
+  base: '/' // Ensure assets are loaded from root path
 });
