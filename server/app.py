@@ -199,6 +199,6 @@ async def analyze_content_endpoint(request: ContentAnalysisRequest):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 # Mount static files
-app.mount("/static", StaticFiles(directory="frontend/dist", html=True), name="frontend")
+app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
 
 logger.info("FastAPI application setup complete")
