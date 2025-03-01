@@ -5,10 +5,10 @@ import type { GraphData } from '@shared/schema';
 
 interface Props {
   data: GraphData;
-  onNodeClick?: (nodeId: string) => void;
+  onSelect?: (nodeId: string) => void;
 }
 
-export function GraphVisualizer({ data, onNodeClick }: Props) {
+export function GraphVisualizer({ data, onSelect }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
 
@@ -68,21 +68,20 @@ export function GraphVisualizer({ data, onNodeClick }: Props) {
       ],
       layout: {
         name: 'cose',
-        animate: false,
         nodeDimensionsIncludeLabels: true
       }
     });
 
-    if (onNodeClick) {
+    if (onSelect) {
       cyRef.current.on('tap', 'node', event => {
-        onNodeClick(event.target.id());
+        onSelect(event.target.id());
       });
     }
 
     return () => {
       cyRef.current?.destroy();
     };
-  }, [data, onNodeClick]);
+  }, [data, onSelect]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '400px' }} />;
 }

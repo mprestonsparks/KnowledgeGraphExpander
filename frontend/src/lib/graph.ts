@@ -3,7 +3,9 @@ import { apiRequest } from "./queryClient";
 
 export async function getGraphData(): Promise<GraphData> {
   console.log('Fetching graph data');
-  const response = await apiRequest("GET", "/api/graph");
+  const response = await apiRequest("/api/graph", { 
+    method: "GET" 
+  });
   const data = await response.json();
   console.log('Received graph data:', {
     nodes: data.nodes.length,
@@ -25,16 +27,21 @@ export async function getGraphData(): Promise<GraphData> {
 }
 
 export async function expandGraph(prompt: string, maxIterations: number = 10): Promise<GraphData> {
-  const response = await apiRequest("POST", "/api/graph/expand", { 
-    prompt,
-    maxIterations 
+  const response = await apiRequest("/api/graph/expand", { 
+    method: "POST",
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ prompt, maxIterations })
   });
   return response.json();
 }
 
 export async function reconnectNodes(): Promise<GraphData> {
   console.log('Requesting node reconnection');
-  const response = await apiRequest("POST", "/api/graph/reconnect");
+  const response = await apiRequest("/api/graph/reconnect", {
+    method: "POST"
+  });
   const data = await response.json();
   console.log('Received reconnected graph data:', {
     nodes: data.nodes.length,
@@ -53,7 +60,9 @@ export async function reconnectNodes(): Promise<GraphData> {
 
 export async function reapplyClustering(): Promise<GraphData> {
   console.log('Requesting cluster recalculation');
-  const response = await apiRequest("POST", "/api/graph/cluster");
+  const response = await apiRequest("/api/graph/cluster", {
+    method: "POST"
+  });
   const data = await response.json();
   console.log('Received updated cluster data:', {
     clusters: data.clusters?.length,

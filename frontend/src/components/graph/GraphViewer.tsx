@@ -1,19 +1,18 @@
 import { useEffect, useRef } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
-import type { Core, ElementDefinition } from "cytoscape";
-import { type GraphData, type ClusterResult } from "@shared/schema";
+import type { Core, ElementDefinition, LayoutOptions } from "cytoscape";
+import { type GraphData } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { RefreshCcw } from "lucide-react";
 import { wsClient } from "@/lib/websocket";
 
 interface GraphViewerProps {
-  data: GraphData & { clusters?: ClusterResult[] };
+  data: GraphData;
+  onSelect?: (nodeId: string) => void;
 }
 
-const layoutConfig = {
+const layoutConfig: LayoutOptions = {
   name: "cose",
-  animate: true,
-  animationDuration: 500,
   nodeDimensionsIncludeLabels: true,
   refresh: 20,
   fit: true,
@@ -94,17 +93,8 @@ const styleSheet = [
   }
 ];
 
-function calculateClusterColors(clusters: ClusterResult[]): Record<number, string> {
-  return clusters.reduce((acc, cluster, index) => {
-    const hue = (index * 137.5) % 360;
-    const saturation = 70;
-    const lightness = 55;
-    acc[cluster.clusterId] = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-    return acc;
-  }, {} as Record<number, string>);
-}
 
-export function GraphViewer({ data }: GraphViewerProps) {
+export function GraphViewer({ data, onSelect }: GraphViewerProps) {
   const cyRef = useRef<Core | null>(null);
 
   const refreshGraph = () => {
@@ -134,42 +124,23 @@ export function GraphViewer({ data }: GraphViewerProps) {
     // Clear existing elements
     cy.elements().remove();
 
-    // Generate cluster colors
-    const clusterColors = data.clusters ? calculateClusterColors(data.clusters) : {};
-
     // Create node elements
     const nodeElements: ElementDefinition[] = data.nodes.map(node => {
       const nodeId = node.id.toString();
-      const nodeCluster = data.clusters?.find(c => c.nodes.includes(nodeId));
-
       const element: ElementDefinition = {
         group: 'nodes',
         data: {
           id: nodeId,
           label: node.label || `Node ${nodeId}`,
           type: node.type || 'concept',
-          ...(nodeCluster && {
-            clusterColor: clusterColors[nodeCluster.clusterId],
-            clusterId: nodeCluster.clusterId
-          })
         },
-        classes: []
+        classes: [] as string[]
       };
 
-      // Add cluster class if node is part of a cluster
-      if (nodeCluster) {
-        element.classes.push('clustered');
-      }
-
-      // Add centroid class if node is a cluster centroid
-      if (nodeCluster?.metadata.centroidNode === nodeId) {
-        element.classes.push('centroid');
-      }
-
-      // Add disconnected class if node has no edges
+      // Add node classification classes
       const degree = data.metrics?.degree?.[node.id] || 0;
       if (degree === 0) {
-        element.classes.push('disconnected');
+        element.classes = ['disconnected'];
       }
 
       return element;
@@ -198,8 +169,6 @@ export function GraphViewer({ data }: GraphViewerProps) {
       console.log('Layout complete:', {
         nodesInGraph: cy.nodes().length,
         edgesInGraph: cy.edges().length,
-        clusteredNodes: cy.nodes('.clustered').length,
-        centroidNodes: cy.nodes('.centroid').length,
         disconnectedNodes: cy.nodes('.disconnected').length
       });
       cy.fit();
@@ -212,57 +181,35 @@ export function GraphViewer({ data }: GraphViewerProps) {
   useEffect(() => {
     console.log('Setting up WebSocket subscription');
     const unsubscribe = wsClient.subscribe((newData) => {
-      console.log('Received graph update via WebSocket:', {
-        nodes: newData.nodes.length,
-        edges: newData.edges?.length || 0
-      });
       if (cyRef.current) {
         const cy = cyRef.current;
-
-        // Generate cluster colors
-        const clusterColors = newData.clusters ? calculateClusterColors(newData.clusters) : {};
 
         // Update existing nodes and add new ones
         newData.nodes.forEach(node => {
           const nodeId = node.id.toString();
-          const nodeCluster = newData.clusters?.find(c => c.nodes.includes(nodeId));
-
           if (!cy.getElementById(nodeId).length) {
-            // Add new node with animation
             cy.add({
               group: 'nodes',
               data: {
                 id: nodeId,
                 label: node.label || `Node ${nodeId}`,
-                type: node.type || 'concept',
-                ...(nodeCluster && {
-                  clusterColor: clusterColors[nodeCluster.clusterId],
-                  clusterId: nodeCluster.clusterId
-                })
+                type: node.type || 'concept'
               },
-              classes: [
-                ...(nodeCluster ? ['clustered'] : []),
-                ...(nodeCluster?.metadata.centroidNode === nodeId ? ['centroid'] : []),
-                ...(newData.metrics?.degree?.[node.id] === 0 ? ['disconnected'] : [])
-              ]
+              classes: newData.metrics?.degree?.[node.id] === 0 ? ['disconnected'] : []
             });
           }
         });
 
         // Update existing edges and add new ones
         newData.edges?.forEach(edge => {
-          const sourceId = edge.sourceId.toString();
-          const targetId = edge.targetId.toString();
           const edgeId = `e${edge.id}`;
-
           if (!cy.getElementById(edgeId).length) {
-            // Add new edge with animation
             cy.add({
               group: 'edges',
               data: {
                 id: edgeId,
-                source: sourceId,
-                target: targetId,
+                source: edge.sourceId.toString(),
+                target: edge.targetId.toString(),
                 label: edge.label || 'related_to',
                 weight: edge.weight || 1
               }
@@ -273,8 +220,6 @@ export function GraphViewer({ data }: GraphViewerProps) {
         // Apply incremental layout
         const layout = cy.layout({
           ...layoutConfig,
-          animate: true,
-          animationDuration: 500,
           fit: false
         });
 
@@ -287,6 +232,16 @@ export function GraphViewer({ data }: GraphViewerProps) {
       unsubscribe();
     };
   }, []);
+
+  // Add event handler for node selection
+  useEffect(() => {
+    if (cyRef.current && onSelect) {
+      const cy = cyRef.current;
+      cy.on('tap', 'node', event => {
+        onSelect(event.target.id());
+      });
+    }
+  }, [onSelect]);
 
   // Refresh graph when data changes
   useEffect(() => {

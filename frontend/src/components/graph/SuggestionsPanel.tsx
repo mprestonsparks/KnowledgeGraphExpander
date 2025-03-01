@@ -15,10 +15,9 @@ interface RelationshipSuggestion {
 }
 
 async function getSuggestions(): Promise<RelationshipSuggestion[]> {
-  const response = await apiRequest("GET", "/api/graph/suggestions");
-  const data = await response.json();
-  console.log('Suggestions response:', data);
-  return data;
+  return apiRequest("/api/graph/suggestions", {
+    method: 'GET'
+  });
 }
 
 async function applySuggestion(suggestion: {
@@ -26,11 +25,16 @@ async function applySuggestion(suggestion: {
   targetId: number;
   label: string;
 }) {
-  const response = await apiRequest("POST", "/api/graph/suggestions/apply", {
-    ...suggestion,
-    weight: 1,
+  return apiRequest("/api/graph/suggestions/apply", {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      ...suggestion,
+      weight: 1,
+    })
   });
-  return response.json();
 }
 
 export function SuggestionsPanel() {
@@ -76,7 +80,6 @@ export function SuggestionsPanel() {
           onClick={refreshSuggestions}
           disabled={isLoading || isRefreshing}
         >
-          {/* @ts-expect-error - Known issue with Lucide types */}
           <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
         </Button>
       </CardHeader>
@@ -90,7 +93,6 @@ export function SuggestionsPanel() {
         )}
         {isLoading ? (
           <div className="flex justify-center py-8">
-            {/* @ts-expect-error - Known issue with Lucide types */}
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : suggestions.length === 0 ? (

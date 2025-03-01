@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { GraphVisualizer } from '../GraphVisualizer';
 import type { GraphData } from '@shared/schema';
@@ -22,7 +22,18 @@ describe('GraphVisualizer', () => {
           validatedAt: new Date().toISOString()
         }
       }
-    ]
+    ],
+    metrics: {
+      betweenness: { 1: 0.5, 2: 0.5 },
+      eigenvector: { 1: 0.5, 2: 0.5 },
+      degree: { 1: 1, 2: 1 },
+      scaleFreeness: {
+        powerLawExponent: 2.1,
+        fitQuality: 0.85,
+        hubNodes: [{ id: 1, degree: 2, influence: 0.8 }],
+        bridgingNodes: [{ id: 2, communities: 2, betweenness: 0.7 }]
+      }
+    }
   };
 
   it('should render without crashing', () => {
@@ -30,11 +41,9 @@ describe('GraphVisualizer', () => {
     expect(container).toBeTruthy();
   });
 
-  it('should handle node click events', () => {
-    const onNodeClick = vi.fn();
-    render(<GraphVisualizer data={mockGraphData} onNodeClick={onNodeClick} />);
-    // Note: Direct DOM testing of cytoscape events is difficult
-    // We're just verifying the component renders with the click handler
-    expect(onNodeClick).toBeDefined();
+  it('should handle node selection', () => {
+    const handleNodeSelect = vi.fn();
+    render(<GraphVisualizer data={mockGraphData} onSelect={handleNodeSelect} />);
+    expect(handleNodeSelect).toBeDefined();
   });
 });

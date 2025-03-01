@@ -87,9 +87,9 @@ describe('GraphViewer', () => {
     expect(edges).toHaveLength(mockGraphData.edges.length);
   });
 
-  it('should handle node click events', () => {
-    const onNodeClick = vi.fn();
-    render(<GraphViewer data={mockGraphData} onNodeClick={onNodeClick} />);
-    expect(onNodeClick).toBeDefined();
+  it('should handle node selection', () => {
+    const onSelect = vi.fn();
+    render(<GraphViewer data={mockGraphData} onSelect={onSelect} />);
+    expect(onSelect).toBeDefined();
   });
 });

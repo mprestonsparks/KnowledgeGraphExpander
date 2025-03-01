@@ -33,7 +33,7 @@ export function SemanticAnalysisForm({ onSuccess }: Props) {
 
   const onSubmit = async (data: FormData) => {
     try {
-      const result = await apiRequest<FormData>('/api/graph/analyze', {
+      const result = await apiRequest('/api/graph/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
