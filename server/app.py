@@ -112,9 +112,9 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 # Include API routers first
-app.include_router(graph.router)
-app.include_router(suggestions.router)
-app.include_router(websocket.router)
+app.include_router(graph.router, prefix="/api")
+app.include_router(suggestions.router, prefix="/api")
+app.include_router(websocket.router, prefix="/api")
 
 # Define API endpoints
 @app.get("/api")
@@ -140,19 +140,27 @@ async def health_check():
     logger.info("Handling health check request")
     return {"status": "healthy"}
 
-@app.post("/api/graph/analyze", response_model=Dict[str, Any], responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
+@app.post("/api/graph/analyze")
 async def analyze_content_endpoint(request: ContentAnalysisRequest):
     """Content analysis endpoint."""
     try:
         from server.semantic_analysis import analyze_content
-        result = await analyze_content(request.dict(), [])
+        if not os.getenv("OPENAI_API_KEY"):
+            raise HTTPException(
+                status_code=400,
+                detail="API key not configured"
+            )
+        result = await analyze_content(request.dict())
         return result
     except HTTPException as http_ex:
         logger.error(f"HTTP error in analyze_content: {http_ex.detail}")
         raise
     except Exception as e:
         logger.error(f"Error in analyze_content: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 # WebSocket connections store
 class ConnectionManager:
@@ -205,5 +213,3 @@ if dist_path.exists():
     logger.info(f"Mounted frontend static files from {dist_path}")
 else:
     logger.warning("Frontend build directory not found. Static files will not be served.")
-
-logger.info("FastAPI application setup complete")
