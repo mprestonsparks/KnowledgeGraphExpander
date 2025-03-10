@@ -1,98 +1,179 @@
-# AI-Powered Knowledge Graph System
+# Agentic Deep Graph Reasoning Knowledge Network
 
-## What is it?
-An intelligent system that automatically maps and visualizes relationships between concepts, creating a dynamic and self-organizing knowledge network. It uses advanced AI to understand semantic connections and cluster related information, making complex knowledge structures easy to explore and understand.
+## 🌟 Overview
+A self-organizing knowledge graph system that implements Buehler's (2025) agentic deep graph reasoning architecture. The system builds dynamic, evolving knowledge graphs using multi-agent collaborative reasoning, temporal evolution tracking, and advanced self-organization capabilities as described in the original research.
 
-## Why you need it
-- **Discover Hidden Connections**: Uncover non-obvious relationships between concepts that might otherwise go unnoticed
-- **Visualize Complex Knowledge**: See how different pieces of information relate to each other in an intuitive graph interface
-- **Automated Organization**: Let AI automatically organize and cluster related concepts
-- **Dynamic Expansion**: Grow your knowledge base naturally by adding new concepts that automatically connect to existing information
-- **Intelligent Insights**: Get AI-powered suggestions for new connections and relationships
+## 🧠 Key Features
 
-## Key Features
+### Multi-Agent Collaborative Reasoning
+- **Explorer Agent**: Identifies new concepts and relationships
+- **Critic Agent**: Evaluates quality and relevance of proposals
+- **Connector Agent**: Creates meaningful connections between concepts
+- **Integrator Agent**: Synthesizes final knowledge structures
 
-### 🧠 Intelligent Semantic Analysis
-- Automatically understands relationships between concepts
-- Uses advanced AI to determine connection strength and relevance
-- Identifies key concepts and central nodes
+### Self-Organizing Knowledge Structure
+- Automatic emergence of scale-free properties
+- Hierarchical clustering with modularity detection
+- Hub and bridge node formation without predefined ontologies
+- Continuous growth without saturation
 
-### 🎨 Interactive Visualization
-- Beautiful, force-directed graph layout
-- Semantic clustering with visual grouping
-- Real-time updates and animations
-- Zoom, pan, and explore relationships
+### Temporal Evolution Tracking
+- Monitors graph growth over time
+- Tracks hub formation and evolution
+- Records historical snapshots for analysis
+- Analyzes power law exponents and other network metrics
 
-### 🤖 AI-Powered Expansion
-- Automatically suggests new connections
-- Grows knowledge graph based on prompts
-- Maintains semantic consistency
-- Identifies and fills knowledge gaps
+### Advanced Graph Merging
+- Semantic similarity detection for node merging
+- Conflict resolution for edge properties
+- Maintains merge history for traceability
+- Intelligent reconnection of disconnected nodes
 
-### 🔍 Advanced Analytics
-- Centrality metrics to identify key concepts
-- Clustering analysis for topic grouping
-- Connection strength visualization
-- Disconnected node detection and repair
+### Feedback Loop Mechanism
+- Implements Buehler's (2025) R_{i+1}=f_{eval}(R_i,F_i) formula
+- Evaluates expansion quality with multiple metrics
+- Generates improvement prompts based on evaluations
+- Refines expansion strategies over time
 
-## Use Cases
+## 📊 System Architecture
 
-### Research & Academia
-- Map research papers and their relationships
-- Visualize citation networks
-- Track concept evolution
-- Identify research gaps
+### Frontend (React + TypeScript)
+- Interactive graph visualization
+- Real-time updates via WebSockets
+- Analytics dashboard for metrics
+- Content analysis input tools
 
-### Business Intelligence
-- Map market relationships
-- Visualize competitor networks
-- Track industry trends
-- Identify strategic opportunities
+### Backend (Python + FastAPI)
+- Graph management and analysis (NetworkX)
+- Semantic clustering with advanced algorithms
+- Multi-agent reasoning system
+- PostgreSQL for persistent storage
 
-### Personal Knowledge Management
-- Create dynamic mind maps
-- Organize research notes
-- Connect related concepts
-- Discover new insights
+### AI Integration
+- OpenAI API for semantic analysis and reasoning
+- Claude API for multimodal content analysis
+- Structured reasoning with thinking state extraction
+- Knowledge extraction pipeline
 
-### Education & Learning
-- Create subject matter maps
-- Visualize curriculum connections
-- Track learning progress
-- Identify prerequisite relationships
+## 🚀 Getting Started
 
-## Getting Started
+### Prerequisites
+- Python 3.10+
+- Node.js 16+
+- PostgreSQL database
+- OpenAI API key
+- Anthropic API key (optional, for multimodal analysis)
+
+### Installation
 
 1. Clone the repository
-2. Install dependencies (`npm install`)
-3. Start the development server (`npm run dev`)
-4. Begin mapping your knowledge!
+   ```bash
+   git clone https://github.com/yourusername/KnowledgeGraphExpander.git
+   cd KnowledgeGraphExpander
+   ```
 
-## Built With
-- React + TypeScript for the frontend
-- FastAPI backend with PostgreSQL
-- Cytoscape.js for graph visualization
-- OpenAI for semantic analysis
-- Advanced clustering algorithms
+2. Set up Python environment
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
 
-## Screenshots
-[Coming soon - Add screenshots of the knowledge graph visualization]
+3. Set up frontend
+   ```bash
+   cd frontend
+   npm install
+   ```
 
-## Contributing
-We welcome contributions! Please see our [contributing guidelines](CONTRIBUTING.md) for details.
+4. Set up environment variables
+   - Create a `.env` file in the root directory with:
+   ```
+   OPENAI_API_KEY=your_openai_api_key
+   ANTHROPIC_API_KEY=your_anthropic_api_key
+   DATABASE_URL=postgresql://user:password@localhost:5432/knowledgegraph
+   ```
 
-## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+5. Run the application
+   ```bash
+   ./run.sh  # Uses run_with_env.sh to load environment variables
+   ```
 
-## Authors
-[Your organization/team name]
+## 📚 Documentation
 
-## Acknowledgments
-- Built with advanced graph theory algorithms
+For more detailed documentation:
+- [Architecture Overview](docs/architecture.md)
+- [API Reference](docs/api-reference.md)
+- [Component Details](docs/components.md)
+- [Setup Guide](docs/setup.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [User Guide](docs/user-guide.md)
+
+## 🧪 Directory Structure
+
+- **`/server`**: Python backend with FastAPI
+  - `/models`: Database schema definitions
+  - `/routes`: API endpoints
+  - `/utils`: Utility functions
+- **`/frontend`**: React frontend application
+  - `/src/components`: React components
+  - `/src/hooks`: Custom React hooks
+  - `/src/lib`: Frontend utility libraries
+- **`/docs`**: Project documentation
+- **`/tests`**: Test suite
+- **`/shared`**: Shared type definitions
+
+## 📊 Research Implementation
+
+This project implements the key algorithms and architecture from Buehler's research on agentic deep graph reasoning and self-organizing knowledge networks (Buehler, 2025).
+
+The implementation focuses on the recursive expansion framework, emergent properties of scale-free networks, and the combination of multiple specialized agents for knowledge discovery as described in Buehler's work.
+
+## 🤝 Contributing
+Contributions are welcome! Please see our [contributing guidelines](CONTRIBUTING.md) for details.
+
+## 📄 License
+
+This project is licensed under the MIT License:
+
+```
+MIT License
+
+Copyright (c) 2025 M. Preston Sparks
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+See the [LICENSE](LICENSE) file for details.
+
+## 👥 Author
+M. Preston Sparks ([@mprestonsparks](https://github.com/mprestonsparks))
+
+## 🙏 Acknowledgments
+- Built using advanced graph theory principles
+- Implements research from Buehler (2025) on agentic deep graph reasoning
 - Powered by state-of-the-art language models
-- Inspired by human cognitive mapping
 
----
+## 📚 Citation
 
-[Add badges for build status, version, etc.]
-# Test change
+This project implements the theoretical framework described in:
+
+```
+Buehler, J. (2025). Agentic Deep Graph Reasoning Yields Self-Organizing Knowledge Networks. 
+arXiv:2502.14958 [cs.AI]
+```

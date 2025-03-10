@@ -7,3 +7,4 @@ vite.config.ts.*
 # Test reports
 tests/reports/*
 !tests/reports/.gitkeep
+.env

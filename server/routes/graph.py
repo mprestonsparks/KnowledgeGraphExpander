@@ -1,6 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from ..models.schemas import GraphData, GraphMetrics, ExpandGraphRequest, ContentAnalysisRequest
 from ..database import get_full_graph
 from ..graph_manager import graph_manager
@@ -67,4 +67,61 @@ async def reapply_clustering():
         raise HTTPException(
             status_code=500,
             detail={"message": "Failed to recalculate clusters", "error": str(e)}
+        )
+        
+@router.post("/reconnect", response_model=GraphData)
+async def reconnect_nodes():
+    """Reconnect disconnected nodes to the main graph"""
+    try:
+        logger.info("Received request to reconnect disconnected nodes")
+        data = await graph_manager.reconnect_disconnected_nodes()
+        logger.info("Node reconnection completed successfully")
+        return data
+    except Exception as e:
+        logger.error(f"Error reconnecting nodes: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Failed to reconnect nodes", "error": str(e)}
+        )
+        
+@router.get("/evolution")
+async def get_evolution_metrics():
+    """Get metrics about the graph's evolution over time"""
+    try:
+        logger.info("Received request for evolution metrics")
+        data = await graph_manager.get_evolution_metrics()
+        logger.info("Retrieved evolution metrics successfully")
+        return data
+    except Exception as e:
+        logger.error(f"Error getting evolution metrics: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Failed to get evolution metrics", "error": str(e)}
+        )
+        
+@router.post("/feedback")
+async def add_feedback(feedback: Dict[str, Any] = Body(...)):
+    """Add user feedback for the graph evolution feedback loop"""
+    try:
+        logger.info(f"Received feedback: {feedback.get('type')}")
+        
+        if not feedback.get("type") or not feedback.get("data"):
+            raise HTTPException(
+                status_code=400,
+                detail={"message": "Feedback type and data are required"}
+            )
+            
+        # Record the feedback
+        graph_manager.evolution_tracker.record_feedback(
+            source="user",
+            feedback_type=feedback.get("type"),
+            data=feedback.get("data")
+        )
+        
+        return {"status": "success", "message": "Feedback recorded successfully"}
+    except Exception as e:
+        logger.error(f"Error recording feedback: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Failed to record feedback", "error": str(e)}
         )

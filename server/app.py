@@ -11,6 +11,10 @@ from starlette.responses import JSONResponse
 from typing import List, Dict, Any
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging with more detailed format
 logging.basicConfig(
@@ -19,6 +23,17 @@ logging.basicConfig(
     stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
+
+# Log API key availability (without showing the actual keys)
+if os.environ.get('ANTHROPIC_API_KEY'):
+    logger.info("ANTHROPIC_API_KEY is available")
+else:
+    logger.warning("ANTHROPIC_API_KEY is not set - some features may not work")
+
+if os.environ.get('OPENAI_API_KEY'):
+    logger.info("OPENAI_API_KEY is available")
+else:
+    logger.warning("OPENAI_API_KEY is not set - some features may not work")
 
 # Import routes and dependencies
 from server.routes import graph, suggestions, websocket
@@ -130,7 +145,7 @@ async def root():
             "/api/graph": "Graph data and operations",
             "/api/graph/analyze": "Content analysis endpoint",
             "/api/graph/suggestions": "Graph relationship suggestions",
-            "/ws": "WebSocket endpoint for real-time updates"
+            "/api/ws": "WebSocket endpoint for real-time updates"
         }
     }
 
@@ -138,17 +153,22 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     logger.info("Handling health check request")
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "anthropic_api": bool(os.environ.get('ANTHROPIC_API_KEY')),
+        "openai_api": bool(os.environ.get('OPENAI_API_KEY'))
+    }
 
 @app.post("/api/graph/analyze")
 async def analyze_content_endpoint(request: ContentAnalysisRequest):
     """Content analysis endpoint."""
     try:
         from server.semantic_analysis import analyze_content
-        if not os.getenv("OPENAI_API_KEY"):
+        # Check either Anthropic or OpenAI key is available
+        if not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("OPENAI_API_KEY"):
             raise HTTPException(
                 status_code=400,
-                detail="API key not configured"
+                detail="No API keys configured. Set either ANTHROPIC_API_KEY or OPENAI_API_KEY"
             )
         result = await analyze_content(request.dict())
         return result
@@ -186,7 +206,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-@app.websocket("/ws")
+@app.websocket("/api/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:

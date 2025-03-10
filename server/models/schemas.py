@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Any
+from datetime import datetime
 
 class Node(BaseModel):
     id: int
@@ -41,11 +42,41 @@ class ScaleFreeness(BaseModel):
     hubNodes: List[HubNode]
     bridgingNodes: List[BridgingNode]
 
+class GraphEvolutionMetrics(BaseModel):
+    node_growth_rate: Optional[float] = None
+    edge_growth_rate: Optional[float] = None
+    node_power_law_exponent: Optional[float] = None
+    edge_power_law_exponent: Optional[float] = None
+    enough_data: bool = False
+    hours_tracked: Optional[float] = None
+    snapshots_count: Optional[int] = None
+
+class HubFormationAnalysis(BaseModel):
+    node_id: str
+    degree: int
+    label: str
+    type: str
+    created_at: Optional[str] = None
+    connections_count: int
+    connection_sample: List[Dict[str, Any]]
+
+class HubFormationResult(BaseModel):
+    top_hubs: List[HubFormationAnalysis]
+    analysis_time: str
+
+class GraphEvolutionData(BaseModel):
+    growth: GraphEvolutionMetrics
+    hubFormation: HubFormationResult
+    recentSnapshots: List[Dict[str, Any]]
+    totalSnapshots: int
+
 class GraphMetrics(BaseModel):
     betweenness: Dict[str, float]
     eigenvector: Dict[str, float]
     degree: Dict[str, int]
     scaleFreeness: ScaleFreeness
+    evolution: Optional[GraphEvolutionMetrics] = None
+    hubFormation: Optional[HubFormationResult] = None
 
 class GraphData(BaseModel):
     nodes: List[Node]
@@ -79,3 +110,17 @@ class ApplySuggestionRequest(BaseModel):
     targetId: int
     label: str
     weight: float = 1.0
+
+class FeedbackRequest(BaseModel):
+    type: str
+    data: Dict[str, Any]
+    
+class ExpansionEvaluationResult(BaseModel):
+    timestamp: str
+    nodes_added: int
+    edges_added: int
+    edges_per_new_node: float
+    density_change: float
+    node_type_diversity: int
+    edge_label_diversity: int
+    iteration: int

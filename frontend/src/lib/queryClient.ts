@@ -1,5 +1,8 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// Get the base API URL
+const API_BASE_URL = window.location.origin;
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -11,13 +14,35 @@ export async function apiRequest(
   url: string,
   options?: RequestInit
 ): Promise<any> {
-  const res = await fetch(url, {
-    ...options,
-    credentials: "include",
-  });
+  // If the URL doesn't start with http, prepend the API base URL
+  const fullUrl = url.startsWith('http') 
+    ? url 
+    : `${API_BASE_URL}${url}`;
+  
+  // Log the full request URL
+  console.log(`Making API request to: ${fullUrl}`);
+  
+  try {
+    const res = await fetch(fullUrl, {
+      ...options,
+      credentials: "include",
+      // Add common headers
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...(options?.headers || {}),
+      }
+    });
 
-  await throwIfResNotOk(res);
-  return res.json();
+    await throwIfResNotOk(res);
+    
+    const data = await res.json();
+    console.log(`API response data:`, data);
+    return data;
+  } catch (error) {
+    console.error(`API request failed: ${error}`);
+    throw error;
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -26,8 +51,18 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey[0] as string, {
+    const path = queryKey[0] as string;
+    const fullUrl = path.startsWith('http') 
+      ? path 
+      : `${API_BASE_URL}${path}`;
+      
+    console.log(`Making query request to: ${fullUrl}`);
+
+    const res = await fetch(fullUrl, {
       credentials: "include",
+      headers: {
+        'Accept': 'application/json',
+      }
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
@@ -35,7 +70,9 @@ export const getQueryFn: <T>(options: {
     }
 
     await throwIfResNotOk(res);
-    return await res.json();
+    const data = await res.json();
+    console.log(`Query response data:`, data);
+    return data;
   };
 
 export const queryClient = new QueryClient({

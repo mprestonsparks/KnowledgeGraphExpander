@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 async def expand_graph(prompt: str, current_graph: nx.Graph):
-    """Expand the graph based on a prompt"""
+    """
+    Expand the graph based on a prompt, following Buehler's (2025) recursive expansion framework
+    """
     # Get existing nodes and edges
     existing_nodes = []
     for node_id in current_graph.nodes():
