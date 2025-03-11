@@ -145,13 +145,89 @@ import pathlib
 async def serve_explorer():
     """Serve the Knowledge Explorer HTML interface directly from the root URL."""
     logger.info("Serving Knowledge Explorer from root URL")
-    project_root = pathlib.Path(__file__).parent.parent
-    explorer_path = project_root / "knowledge_explorer.html"
-    if explorer_path.exists():
-        return FileResponse(explorer_path)
-    else:
-        logger.error(f"Knowledge Explorer file not found at {explorer_path}")
-        raise HTTPException(status_code=404, detail="Knowledge Explorer file not found")
+    # Try multiple possible locations for the file
+    possible_paths = [
+        pathlib.Path(__file__).parent.parent / "knowledge_explorer.html",  # Project root
+        pathlib.Path("/app/knowledge_explorer.html"),                      # Docker container root
+        pathlib.Path.cwd() / "knowledge_explorer.html",                    # Current working directory
+    ]
+    
+    for path in possible_paths:
+        logger.info(f"Checking for Knowledge Explorer at: {path}")
+        if path.exists():
+            logger.info(f"Found Knowledge Explorer at: {path}")
+            return FileResponse(path)
+    
+    # If we get here, the file wasn't found
+    logger.error(f"Knowledge Explorer file not found in any of these locations: {[str(p) for p in possible_paths]}")
+    
+    # Serve a minimal HTML interface directly
+    minimal_html = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Knowledge Graph Explorer</title>
+        <style>
+            body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+            h1 { color: #2563eb; }
+            textarea { width: 100%; height: 150px; margin: 10px 0; padding: 10px; }
+            button { background: #2563eb; color: white; border: none; padding: 10px 15px; cursor: pointer; }
+            #status { margin-top: 10px; padding: 10px; display: none; }
+            .success { background: #d1fae5; color: #065f46; display: block; }
+            .error { background: #fee2e2; color: #b91c1c; display: block; }
+        </style>
+    </head>
+    <body>
+        <h1>Knowledge Graph Explorer</h1>
+        <p>Enter text to analyze and extract knowledge graph nodes and relationships:</p>
+        <textarea id="content" placeholder="Enter text to analyze..."></textarea>
+        <button id="analyze">Analyze Content</button>
+        <div id="status"></div>
+        <div id="output"></div>
+        
+        <script>
+            document.getElementById('analyze').addEventListener('click', async () => {
+                const text = document.getElementById('content').value.trim();
+                if (!text) {
+                    showStatus('Please enter some text to analyze', 'error');
+                    return;
+                }
+                
+                showStatus('Analyzing...', 'info');
+                
+                try {
+                    const response = await fetch('/api/graph/analyze', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text })
+                    });
+                    
+                    if (!response.ok) throw new Error('Analysis failed');
+                    
+                    const data = await response.json();
+                    showStatus('Analysis complete!', 'success');
+                    
+                    // Display results
+                    document.getElementById('output').innerHTML = '<h2>Analysis Results</h2><pre>' + 
+                        JSON.stringify(data, null, 2) + '</pre>';
+                    
+                } catch (error) {
+                    showStatus('Error: ' + error.message, 'error');
+                }
+            });
+            
+            function showStatus(message, type) {
+                const status = document.getElementById('status');
+                status.textContent = message;
+                status.className = type;
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=minimal_html)
 
 # Define API endpoints
 @app.get("/api")

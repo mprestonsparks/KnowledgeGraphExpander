@@ -36,6 +36,10 @@ WORKDIR /app
 # Copy application code
 COPY . .
 
+# Ensure knowledge explorer is present and has correct permissions
+RUN ls -la knowledge_explorer.html || echo "WARNING: knowledge_explorer.html file not found!"
+RUN chmod 644 knowledge_explorer.html 2>/dev/null || echo "Could not set permissions on knowledge_explorer.html"
+
 # Build frontend
 WORKDIR /app/frontend
 RUN npm run build

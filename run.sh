@@ -132,6 +132,7 @@ services:
       # Mount for development (enabled for hot reloading)
       - ./server:/app/server
       - ./shared:/app/shared
+      - ./knowledge_explorer.html:/app/knowledge_explorer.html:ro
       # For .env file
       - ./.env:/app/.env:ro
     depends_on:
