@@ -91,8 +91,13 @@ A self-organizing knowledge graph system that implements Buehler's (2025) agenti
    
    Note: If the default port is in use, the script will automatically find the next available port.
    
-   Once the application is running, you can access the Knowledge Explorer interface at:
-   http://localhost:[PORT]/explorer
+   Once the application is running, you can access:
+   
+   - **Knowledge Graph Explorer**: http://localhost:[PORT]/explorer
+     (A user-friendly interface for working with the knowledge graph)
+   
+   - **API Documentation**: http://localhost:[PORT]/api/docs
+     (Interactive Swagger UI for testing the API directly)
 
 ### Command-line Options
 

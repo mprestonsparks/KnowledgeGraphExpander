@@ -214,7 +214,8 @@ if [ "$DEV_MODE" = true ]; then
     
     # Start API in development mode
     echo -e "\033[1;34mStarting API in development mode\033[0m"
-    echo -e "\033[1;32m➡️ The application will be available at: http://localhost:$HOST_PORT\033[0m"
+    echo -e "\033[1;32m➡️ The Knowledge Graph Explorer is available at: http://localhost:$HOST_PORT/explorer\033[0m"
+    echo -e "\033[1;32m➡️ The API docs are available at: http://localhost:$HOST_PORT/api/docs\033[0m"
     $DOCKER_COMPOSE -f docker-compose-custom.yml run --service-ports api dev
 else
     echo -e "\033[1;34mStarting application...\033[0m"
@@ -229,7 +230,8 @@ else
     
     # Show application info and logs
     echo -e "\033[1;34mApplication is running!\033[0m"
-    echo -e "\033[1;32m➡️ The application is available at: http://localhost:$HOST_PORT\033[0m"
+    echo -e "\033[1;32m➡️ The Knowledge Graph Explorer is available at: http://localhost:$HOST_PORT/explorer\033[0m"
+    echo -e "\033[1;32m➡️ The API docs are available at: http://localhost:$HOST_PORT/api/docs\033[0m"
     echo -e "\033[1;34mShowing logs (press Ctrl+C to exit logs but keep the application running):\033[0m"
     $DOCKER_COMPOSE -f docker-compose-custom.yml logs -f api
 fi

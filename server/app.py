@@ -39,6 +39,7 @@ else:
 from server.routes import graph, suggestions, websocket
 from server.database import init_db, cleanup_pool
 from server.graph_manager import graph_manager
+from server.debug_routes import router as debug_router
 
 class ContentAnalysisRequest(BaseModel):
     """Request model for content analysis."""
@@ -73,7 +74,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Knowledge Graph API",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc"
 )
 
 # Configure CORS
@@ -83,6 +86,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 @app.exception_handler(RequestValidationError)
@@ -130,6 +134,24 @@ async def general_exception_handler(request: Request, exc: Exception):
 app.include_router(graph.router, prefix="/api")
 app.include_router(suggestions.router, prefix="/api")
 app.include_router(websocket.router, prefix="/api")
+logger.info(f"WebSocket router included with prefix: /api (full path: /api/ws)")
+app.include_router(debug_router)
+
+# Add a route specifically for the explorer at the root level
+from fastapi.responses import FileResponse
+import pathlib
+
+@app.get("/explorer", include_in_schema=False)
+async def serve_explorer():
+    """Serve the Knowledge Explorer HTML interface directly from the root URL."""
+    logger.info("Serving Knowledge Explorer from root URL")
+    project_root = pathlib.Path(__file__).parent.parent
+    explorer_path = project_root / "knowledge_explorer.html"
+    if explorer_path.exists():
+        return FileResponse(explorer_path)
+    else:
+        logger.error(f"Knowledge Explorer file not found at {explorer_path}")
+        raise HTTPException(status_code=404, detail="Knowledge Explorer file not found")
 
 # Define API endpoints
 @app.get("/api")
@@ -206,30 +228,21 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-@app.websocket("/api/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        # Send initial graph data on connection
-        graph_data = await graph_manager.get_graph_data()
-        await websocket.send_json(graph_data)
+# WebSocket endpoint moved to routes/websocket.py
 
-        while True:
-            data = await websocket.receive_text()
-            logger.info(f"Received WebSocket message: {data}")
-            await websocket.send_text(f"Message received: {data}")
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected")
-    except Exception as e:
-        logger.error(f"WebSocket error: {str(e)}")
-    finally:
-        manager.disconnect(websocket)
+# Add root redirect to explorer
+@app.get("/", include_in_schema=False)
+async def root_redirect():
+    """Redirect root URL to Knowledge Explorer."""
+    logger.info("Root URL accessed, redirecting to Knowledge Explorer")
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/explorer")
 
 # Mount static files last to avoid conflicts with API routes
 # Check if frontend/dist exists before mounting
 dist_path = pathlib.Path(__file__).parent.parent / "frontend" / "dist"
 if dist_path.exists():
-    app.mount("/", StaticFiles(directory=str(dist_path), html=True), name="frontend")
-    logger.info(f"Mounted frontend static files from {dist_path}")
+    app.mount("/app", StaticFiles(directory=str(dist_path), html=True), name="frontend")
+    logger.info(f"Mounted frontend static files from {dist_path} at /app")
 else:
     logger.warning("Frontend build directory not found. Static files will not be served.")
