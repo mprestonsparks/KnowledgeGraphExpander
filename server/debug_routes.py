@@ -17,11 +17,11 @@ logger.addHandler(handler)
 logger.setLevel(logging.DEBUG)
 
 # Serve the knowledge explorer HTML interface
-@router.get("/explorer", response_class=HTMLResponse)
-async def knowledge_explorer():
-    """Serve the Knowledge Explorer HTML interface."""
+@router.get("/debug-explorer", response_class=HTMLResponse)
+async def knowledge_explorer_debug():
+    """Serve the Knowledge Explorer HTML interface from file (debug version)."""
     try:
-        logger.info("Serving Knowledge Explorer HTML interface")
+        logger.info("Serving Knowledge Explorer HTML interface (debug route)")
         project_root = pathlib.Path(__file__).parent.parent
         explorer_path = project_root / "knowledge_explorer.html"
         

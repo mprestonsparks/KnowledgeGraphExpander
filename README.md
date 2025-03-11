@@ -1,5 +1,36 @@
 # Agentic Deep Graph Reasoning Knowledge Network
 
+## 🚀 Quick Start
+
+### Prerequisites
+- Docker and Docker Compose
+- OpenAI API key (or Anthropic API key)
+
+### Installation & Running
+
+1. **Clone and run with one command:**
+   ```bash
+   git clone https://github.com/yourusername/KnowledgeGraphExpander.git
+   cd KnowledgeGraphExpander
+   ./run.sh
+   ```
+
+2. **Access the application:**
+   - Knowledge Explorer UI: http://localhost:8000/explorer
+   - API Documentation: http://localhost:8000/api/docs
+
+3. **Configure API keys** through the Settings tab in the Knowledge Explorer UI
+
+4. **Stop the application** when finished:
+   ```bash
+   ./stop.sh
+   ```
+
+For more options:
+```bash
+./run.sh --help
+```
+
 ## 🌟 Overview
 A self-organizing knowledge graph system that implements Buehler's (2025) agentic deep graph reasoning architecture. The system builds dynamic, evolving knowledge graphs using multi-agent collaborative reasoning, temporal evolution tracking, and advanced self-organization capabilities as described in the original research.
 
@@ -38,10 +69,11 @@ A self-organizing knowledge graph system that implements Buehler's (2025) agenti
 ## 📊 System Architecture
 
 ### Frontend (React + TypeScript)
-- Interactive graph visualization
+- Interactive graph visualization with D3.js
 - Real-time updates via WebSockets
 - Analytics dashboard for metrics
 - Content analysis input tools
+- In-browser API key configuration
 
 ### Backend (Python + FastAPI)
 - Graph management and analysis (NetworkX)
@@ -86,7 +118,7 @@ A self-organizing knowledge graph system that implements Buehler's (2025) agenti
    - Check for Docker and Docker Compose
    - Build the Docker images (if needed)
    - Start the application containers
-   - Automatically find an available port (default: 8080)
+   - Automatically find an available port (default: 8000)
    - The application will be available at http://localhost:[PORT]
    
    Note: If the default port is in use, the script will automatically find the next available port.
@@ -110,7 +142,7 @@ Options:
   --persist-db    Persist database data between runs
   --build         Force rebuild of Docker images
   --dev           Run in development mode with hot reloading
-  --port=PORT     Specify custom port (default: 8080)
+  --port=PORT     Specify custom port (default: 8000)
   --help          Show this help message
 ```
 
