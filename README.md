@@ -10,7 +10,7 @@
 
 1. **Clone and run with one command:**
    ```bash
-   git clone https://github.com/yourusername/KnowledgeGraphExpander.git
+   git clone https://github.com/mprestonsparks/KnowledgeGraphExpander.git
    cd KnowledgeGraphExpander
    ./run.sh
    ```
@@ -98,7 +98,7 @@ A self-organizing knowledge graph system that implements Buehler's (2025) agenti
 
 1. Clone the repository
    ```bash
-   git clone https://github.com/yourusername/KnowledgeGraphExpander.git
+   git clone https://github.com/mprestonsparks/KnowledgeGraphExpander.git
    cd KnowledgeGraphExpander
    ```
 
