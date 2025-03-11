@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: knowledge-graph-api
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/knowledgegraph
+      - PORT=8000
+      # Uncomment and fill in your API keys or use .env file
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      # Mount for development (uncomment for local development)
+      - ./server:/app/server
+      - ./shared:/app/shared
+      # For .env file
+      - ./.env:/app/.env:ro
+    depends_on:
+      - db
+    networks:
+      - knowledge-graph-network
+
+  db:
+    image: postgres:14-alpine
+    container_name: knowledge-graph-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=knowledgegraph
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - knowledge-graph-network
+
+networks:
+  knowledge-graph-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    # Set to 'true' to persist data, 'false' to discard on container down
+    external: false

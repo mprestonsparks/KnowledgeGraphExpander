@@ -58,13 +58,11 @@ A self-organizing knowledge graph system that implements Buehler's (2025) agenti
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Python 3.10+
-- Node.js 16+
-- PostgreSQL database
+- Docker and Docker Compose
 - OpenAI API key
 - Anthropic API key (optional, for multimodal analysis)
 
-### Installation
+### Quick Start with Docker
 
 1. Clone the repository
    ```bash
@@ -72,31 +70,99 @@ A self-organizing knowledge graph system that implements Buehler's (2025) agenti
    cd KnowledgeGraphExpander
    ```
 
-2. Set up Python environment
+2. Set up environment variables
+   - Create a `.env` file in the root directory or use the provided `.env.example`:
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
+   cp .env.example .env
+   ```
+   - Edit the `.env` file to add your API keys
+
+3. Run the application
+   ```bash
+   ./run.sh
+   ```
+   
+   This script will:
+   - Check for Docker and Docker Compose
+   - Build the Docker images (if needed)
+   - Start the application containers
+   - Automatically find an available port (default: 8080)
+   - The application will be available at http://localhost:[PORT]
+   
+   Note: If the default port is in use, the script will automatically find the next available port.
+   
+   Once the application is running, you can access the Knowledge Explorer interface at:
+   http://localhost:[PORT]/explorer
+
+### Command-line Options
+
+The `run.sh` script supports several options:
+
+```bash
+./run.sh [options]
+
+Options:
+  --persist-db    Persist database data between runs
+  --build         Force rebuild of Docker images
+  --dev           Run in development mode with hot reloading
+  --port=PORT     Specify custom port (default: 8080)
+  --help          Show this help message
+```
+
+To stop the application:
+
+```bash
+./stop.sh
+
+Options:
+  --clean    Remove all data (including database volume)
+  --force    Force removal of containers even if they're running
+  --help     Show this help message
+```
+
+### Manual Docker Commands
+
+If you prefer to use Docker commands directly:
+
+1. Build the Docker images:
+   ```bash
+   docker-compose build
    ```
 
-3. Set up frontend
+2. Start the services:
    ```bash
-   cd frontend
-   npm install
+   docker-compose up -d
    ```
 
-4. Set up environment variables
-   - Create a `.env` file in the root directory with:
+3. Stop the services:
+   ```bash
+   docker-compose down
    ```
-   OPENAI_API_KEY=your_openai_api_key
-   ANTHROPIC_API_KEY=your_anthropic_api_key
-   DATABASE_URL=postgresql://user:password@localhost:5432/knowledgegraph
+   
+4. Remove all data:
+   ```bash
+   docker-compose down -v
    ```
 
-5. Run the application
-   ```bash
-   ./run.sh  # Uses run_with_env.sh to load environment variables
-   ```
+## Advanced Usage
+
+### Development Mode
+
+For local development with hot reloading:
+
+```bash
+./run.sh --dev
+```
+
+This mounts your local code directories into the container for live code changes.
+
+### Database Persistence
+
+To persist the database data between container restarts:
+
+```bash
+./run.sh --persist-db
+```
 
 ## 📚 Documentation
 

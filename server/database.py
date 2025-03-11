@@ -10,13 +10,45 @@ from contextlib import asynccontextmanager
 logger = logging.getLogger(__name__)
 
 # Database connection
+# Get connection parameters from environment or use defaults
+DB_HOST = os.environ.get("DB_HOST", "db")  # Default to 'db' for Docker service name
+DB_PORT = os.environ.get("DB_PORT", "5432")
+DB_USER = os.environ.get("DB_USER", "postgres")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "postgres")
+DB_NAME = os.environ.get("DB_NAME", "knowledgegraph")
+DB_SSLMODE = os.environ.get("DB_SSLMODE", "prefer")
+
+# Full DATABASE_URL from environment (if provided) has priority
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://neondb_owner:npg_UuYP8ajchEx1@ep-polished-smoke-a465m3uc.us-east-1.aws.neon.tech/neondb?sslmode=require"
+    f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?sslmode={DB_SSLMODE}"
 )
+
+logger.info(f"Using database host: {DB_HOST}")
+
+# Connection pool settings
+MIN_POOL_SIZE = int(os.environ.get("MIN_DB_POOL_SIZE", "2"))
+MAX_POOL_SIZE = int(os.environ.get("MAX_DB_POOL_SIZE", "10"))
+COMMAND_TIMEOUT = int(os.environ.get("DB_COMMAND_TIMEOUT", "60"))
 
 # Global connection pool
 pool: Optional[Pool] = None
+
+async def test_db_connection():
+    """Test database connection"""
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            # Test connection with simple query
+            result = await conn.fetchval("SELECT 1 as test")
+            if result == 1:
+                logger.info("Database connection test successful")
+                return True
+            logger.error("Database connection test failed: unexpected result")
+            return False
+    except Exception as e:
+        logger.error(f"Database connection test failed: {str(e)}", exc_info=True)
+        return False
 
 async def init_db():
     """Initialize the database and create tables if needed"""
@@ -61,16 +93,16 @@ async def get_pool() -> Pool:
     global pool
     try:
         if pool is None:
-            logger.info("Creating new database connection pool...")
+            logger.info(f"Creating new database connection pool to {DB_HOST}:{DB_PORT}...")
             pool = await asyncpg.create_pool(
                 DATABASE_URL,
-                min_size=2,
-                max_size=10,
-                command_timeout=60,
+                min_size=MIN_POOL_SIZE,
+                max_size=MAX_POOL_SIZE,
+                command_timeout=COMMAND_TIMEOUT,
                 init=init_connection,
                 server_settings={
                     'application_name': 'knowledge_graph',
-                    'statement_timeout': '60s'
+                    'statement_timeout': f'{COMMAND_TIMEOUT}s'
                 }
             )
             if pool:
@@ -225,6 +257,15 @@ async def create_edge(edge_data):
             return edge
     except Exception as e:
         logger.error(f"Error creating edge: {str(e)}", exc_info=True)
+        raise
+
+async def fetch_query(query: str, *args):
+    """Execute a database query and return results"""
+    try:
+        async with get_db() as conn:
+            return await conn.fetch(query, *args)
+    except Exception as e:
+        logger.error(f"Error executing query: {str(e)}", exc_info=True)
         raise
 
 async def get_full_graph():
