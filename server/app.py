@@ -539,19 +539,30 @@ KNOWLEDGE_EXPLORER_HTML = """<!DOCTYPE html>
                 };
                 
                 socket.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    console.log("WebSocket message received:", data);
-                    
-                    if (data.type === 'graph_update') {
-                        fetchGraphData();
-                        showStatusMessage("Graph updated successfully", "success");
-                    } else if (data.type === 'analysis_complete') {
-                        showStatusMessage("Analysis complete", "success");
-                        fetchGraphData();
+                    try {
+                        // Check if it's a welcome message (non-JSON)
+                        if (event.data.startsWith("Connected")) {
+                            console.log("WebSocket connection established: " + event.data);
+                            return;
+                        }
+                        
+                        // Try to parse as JSON
+                        const data = JSON.parse(event.data);
+                        console.log("WebSocket message received:", data);
+                        
+                        if (data.type === 'graph_update') {
+                            fetchGraphData();
+                            showStatusMessage("Graph updated successfully", "success");
+                        } else if (data.type === 'analysis_complete') {
+                            showStatusMessage("Analysis complete", "success");
+                            fetchGraphData();
+                        }
+                        
+                        // Update API response area
+                        elements.apiResponse.textContent = JSON.stringify(data, null, 2);
+                    } catch (error) {
+                        console.log("Received non-JSON message:", event.data);
                     }
-                    
-                    // Update API response area
-                    elements.apiResponse.textContent = JSON.stringify(data, null, 2);
                 };
                 
                 socket.onclose = () => {
@@ -1327,7 +1338,13 @@ async def analyze_content_endpoint(request: ContentAnalysisRequest):
                 status_code=400,
                 detail="No API keys configured. Set either ANTHROPIC_API_KEY or OPENAI_API_KEY"
             )
-        result = await analyze_content(request.dict())
+        # Use model_dump() for Pydantic v2 compatibility instead of dict()
+        if hasattr(request, "model_dump"):
+            request_data = request.model_dump()
+        else:
+            request_data = request.dict()
+            
+        result = await analyze_content(request_data)
         return result
     except HTTPException as http_ex:
         logger.error(f"HTTP error in analyze_content: {http_ex.detail}")
